@@ -1,6 +1,5 @@
 from datetime import datetime
 import io
-import os
 import pandas as pd
 import streamlit as st
 
@@ -9,15 +8,13 @@ st.set_page_config(
 )
 
 st.title("📊 Panel de Control: Producción y Seguimiento Comercial")
-st.markdown(
-    "Consolidación automática manteniendo la estructura original del formato."
-)
+st.markdown("Consolidación inteligente manteniendo el formato original.")
 
 st.sidebar.header("📂 Gestión de Archivos")
 
-# 1. Subir el archivo consolidado histórico (opcional)
+# 1. Subir el archivo modelo o consolidado actual
 archivo_base = st.sidebar.file_uploader(
-    "1. Sube tu Excel Consolidado actual (Opcional si es nuevo)",
+    "1. Sube tu Excel Consolidado o Plantilla Modelo",
     type=["xlsx"],
     key="base",
 )
@@ -30,18 +27,21 @@ archivos_nuevos = st.sidebar.file_uploader(
     key="nuevos",
 )
 
-# Inicializar DataFrames
+# Inicializar DataFrames y estructura base
 df_ventas_total = pd.DataFrame()
+columnas_modelo = None
 
-# Leer el consolidado base si ya existe
+# Leer el archivo base o modelo si se sube
 if archivo_base is not None:
   try:
     xls_base = pd.ExcelFile(archivo_base)
-    # Buscamos la hoja principal de ventas
     hoja_base = xls_base.sheet_names[0]
     df_ventas_total = pd.read_excel(xls_base, sheet_name=hoja_base, header=0)
-  except Exception:
-    st.sidebar.error("⚠️ El archivo consolidado base tiene un formato inválido.")
+    columnas_modelo = (
+        df_ventas_total.columns.tolist()
+    )  # Guardar las columnas exactas del modelo
+  except Exception as e:
+    st.sidebar.error(f"⚠️ Error al leer el archivo base: {e}")
 
 # Procesar los reportes individuales de los vendedores
 if archivos_nuevos:
@@ -52,11 +52,11 @@ if archivos_nuevos:
           how="all"
       )
 
-      # Validar que contenga columnas clave
+      # Validar columnas esenciales
       columnas_texto = " ".join([str(c) for c in df_vendedor.columns])
       if "Cotizacion" not in columnas_texto and "Numero" not in columnas_texto:
         st.sidebar.error(
-            f"❌ El archivo '{file.name}' no tiene la estructura correcta en"
+            f"❌ El archivo '{file.name}' no tiene la columna de Cotización en"
             " A1."
         )
         continue
@@ -71,12 +71,10 @@ if archivos_nuevos:
         df_ventas_total = df_vendedor
 
       st.sidebar.success(f"✅ ¡Procesado correctamente: {file.name}!")
-    except Exception:
-      st.sidebar.error(
-          f"❌ Error al procesar '{file.name}'. Revisa que comience en A1."
-      )
+    except Exception as e:
+      st.sidebar.error(f"❌ Error al procesar '{file.name}': {e}")
 
-# --- SECCIÓN DE DESCARGA DEL EXCEL CON LA ESTRUCTURA EXACTA ---
+# --- SECCIÓN DE DESCARGA DEL EXCEL CONSOLIDADO FINAL ---
 if not df_ventas_total.empty:
   st.sidebar.markdown("---")
 
@@ -99,8 +97,18 @@ if not df_ventas_total.empty:
 
 # --- PESTAÑAS DE VISUALIZACIÓN ---
 st.subheader("💰 Seguimiento de Ventas Consolidado")
+
 if not df_ventas_total.empty:
   st.dataframe(df_ventas_total, use_container_width=True)
-  st.info(f"Total de registros consolidados: {len(df_ventas_total)}")
+  # Mostrar métrica informativa de registros y columnas detectadas
+  st.success(
+      f"📊 Se encontraron **{len(df_ventas_total)}** registros y"
+      f" **{len(df_ventas_total.columns)}** columnas cargadas"
+      " correctamente."
+  )
 else:
-  st.info("Sube los reportes individuales de los vendedores en la barra lateral.")
+  st.info(
+      "📌 Sube tu plantilla modelo o archivo base arriba, y luego añade los"
+      " reportes semanales de los vendedores en la opción 2 para ver el"
+      " resultado consolidado."
+  )
