@@ -133,7 +133,7 @@ if archivos_nuevos:
     except Exception as e:
       st.sidebar.error(f"❌ Error al procesar '{file.name}': {e}")
 
-# --- SECCIÓN DE DESCARGA DEL CONSOLIDADO FINAL SIN ESPACIOS VACÍOS ---
+# --- SECCIÓN DE DESCARGA DEL CONSOLIDADO FINAL ---
 if (
     not st.session_state["df_ventas"].empty
     or not st.session_state["df_auditoria"].empty
@@ -233,7 +233,7 @@ if (
       ),
   )
 
-# --- VISUALIZACIÓN EN PESTAÑAS (SIN PLANIFICACIÓN DE PRODUCCIÓN) ---
+# --- VISUALIZACIÓN EN PESTAÑAS ---
 tab1, tab2, tab3 = st.tabs(
     [
         "📦 Resumen por Mes y Unidad",
@@ -243,17 +243,36 @@ tab1, tab2, tab3 = st.tabs(
 )
 
 with tab1:
-  st.subheader("Resumen Proyectado: Cantidades y Valores por Mes Previsto y Unidad")
+  st.subheader("Resumen Proyectado: Cantidades y Valores por Unidad")
   if not st.session_state["df_auditoria"].empty:
     df_aud = st.session_state["df_auditoria"].copy()
     
-    # Asegurar tipos numéricos para sumar correctamente
     df_aud["Cantidad Bruta"] = pd.to_numeric(df_aud["Cantidad Bruta"], errors="coerce").fillna(0)
     df_aud["Importe Bruto (S/)"] = pd.to_numeric(df_aud["Importe Bruto (S/)"], errors="coerce").fillna(0)
     
-    # Agrupación por Mes Previsto y Unidad
     if "Mes Previsto" in df_aud.columns and "Unidad" in df_aud.columns:
-      df_resumen = df_aud.groupby(["Mes Previsto", "Unidad"], dropna=False).agg(
+      # Obtener lista de meses únicos para el filtro interactivo
+      meses_disponibles = sorted([str(m) for m in df_aud["Mes Previsto"].dropna().unique()])
+      
+      # Intentar seleccionar el mes actual por defecto si existe en los datos
+      mes_actual_str = datetime.now().strftime("%B").capitalize() # o texto similar
+      default_selection = meses_disponibles if meses_disponibles else []
+      
+      st.markdown("### 🎛️ Filtros Interactivos")
+      meses_seleccionados = st.multiselect(
+          "Selecciona el Mes Previsto (puedes marcar uno o varios, o dejarlo todo seleccionado):",
+          options=meses_disponibles,
+          default=meses_disponibles
+      )
+      
+      # Filtrar dataframe según lo que el usuario elija en la web
+      if meses_seleccionados:
+        df_filtrado = df_aud[df_aud["Mes Previsto"].astype(str).isin(meses_seleccionados)]
+      else:
+        df_filtrado = df_aud.copy()
+
+      # Agrupar por Unidad (y opcionalmente mantener detalle por mes si hay varios)
+      df_resumen = df_filtrado.groupby(["Mes Previsto", "Unidad"], dropna=False).agg(
           Total_Cantidad=("Cantidad Bruta", "sum"),
           Total_Valor_IGV=("Importe Bruto (S/)", "sum"),
           Total_Cotizaciones=("N° Cotización", "count")
@@ -261,15 +280,14 @@ with tab1:
       
       st.dataframe(df_resumen, use_container_width=True)
       
-      # Métrica rápida del total general de cantidad
       total_general_cant = df_resumen["Total_Cantidad"].sum()
       total_general_val = df_resumen["Total_Valor_IGV"].sum()
       
       col1, col2 = st.columns(2)
       with col1:
-        st.metric(label="📦 Cantidad Total Esperada", value=f"{total_general_cant:,.2f}")
+        st.metric(label="📦 Cantidad Total Filtrada", value=f"{total_general_cant:,.2f}")
       with col2:
-        st.metric(label="💰 Valor Total con IGV (S/)", value=f"S/ {total_general_val:,.2f}")
+        st.metric(label="💰 Valor Total con IGV (S/) Filtrado", value=f"S/ {total_general_val:,.2f}")
     else:
       st.warning("No se encontraron las columnas 'Mes Previsto' o 'Unidad' en los reportes.")
   else:
