@@ -296,7 +296,13 @@ with tab1:
           Total_Cotizaciones=("N° Cotización", "count")
       ).reset_index()
       
-      st.dataframe(df_resumen, use_container_width=True)
+      # --- APLICAR FORMATO CONTABLE S/ EN LA VISTA ---
+      df_resumen_display = df_resumen.copy()
+      df_resumen_display["Total_Valor_IGV"] = df_resumen_display["Total_Valor_IGV"].apply(
+          lambda x: f"S/ {x:,.2f}"
+      )
+      
+      st.dataframe(df_resumen_display, use_container_width=True)
       
       total_general_cant = df_resumen["Total_Cantidad"].sum()
       total_general_val = df_resumen["Total_Valor_IGV"].sum()
