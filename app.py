@@ -296,13 +296,16 @@ with tab1:
           Total_Cotizaciones=("N° Cotización", "count")
       ).reset_index()
       
-      # --- APLICAR FORMATO CONTABLE S/ EN LA VISTA ---
+      # --- APLICAR FORMATO CONTABLE S/ Y ALINEACIÓN A LA IZQUIERDA ---
       df_resumen_display = df_resumen.copy()
-      df_resumen_display["Total_Valor_IGV"] = df_resumen_display["Total_Valor_IGV"].apply(
-          lambda x: f"S/ {x:,.2f}"
-      )
+      df_resumen_display["Total_Cantidad"] = df_resumen_display["Total_Cantidad"].apply(lambda x: f"{x:,.2f}")
+      df_resumen_display["Total_Valor_IGV"] = df_resumen_display["Total_Valor_IGV"].apply(lambda x: f"S/ {x:,.2f}")
+      df_resumen_display["Total_Cotizaciones"] = df_resumen_display["Total_Cotizaciones"].astype(str)
       
-      st.dataframe(df_resumen_display, use_container_width=True)
+      # Estilizar para alinear todo a la izquierda en la visualización web
+      df_styled = df_resumen_display.style.set_properties(**{'text-align': 'left'})
+      
+      st.dataframe(df_styled, use_container_width=True)
       
       total_general_cant = df_resumen["Total_Cantidad"].sum()
       total_general_val = df_resumen["Total_Valor_IGV"].sum()
