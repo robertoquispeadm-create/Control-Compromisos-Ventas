@@ -13,7 +13,7 @@ st.set_page_config(
 )
 
 st.title("📊 Panel de Control: Seguimiento Comercial")
-st.markdown("Consolidación inteligente con preservación de historial comercial.")
+st.markdown("Consolidación inteligente con formatos contables (Soles, Porcentajes y Enteros) y control de historial.")
 
 st.sidebar.header("📂 Gestión de Archivos")
 
@@ -37,7 +37,7 @@ if "df_ventas" not in st.session_state:
 if "wb_template" not in st.session_state:
   st.session_state["wb_template"] = None
 
-# Cargar plantilla base
+# Cargar plantilla base y lectura flexible de Seguimiento_Ventas
 if archivo_base is not None:
   try:
     archivo_base.seek(0)
@@ -46,10 +46,20 @@ if archivo_base is not None:
     archivo_base.seek(0)
     xls_base = pd.ExcelFile(archivo_base)
 
-    if "Seguimiento_Ventas" in xls_base.sheet_names:
-      df_temp = pd.read_excel(xls_base, sheet_name="Seguimiento_Ventas", header=0)
+    # Buscar la pestaña de ventas de forma flexible (por nombre exacto o que contenga 'Ventas' o 'Seguimiento')
+    hoja_ventas_encontrada = None
+    for name in xls_base.sheet_names:
+      n_lower = name.lower()
+      if "venta" in n_lower or "seguimiento" in n_lower:
+        hoja_ventas_encontrada = name
+        break
+
+    if hoja_ventas_encontrada:
+      df_temp = pd.read_excel(xls_base, sheet_name=hoja_ventas_encontrada, header=0)
       df_temp.columns = [str(c).strip() for c in df_temp.columns]
       st.session_state["df_ventas"] = df_temp.dropna(how="all")
+    else:
+      st.sidebar.warning("⚠️ No se encontró una pestaña de 'Seguimiento_Ventas' en el archivo base.")
 
     if "Detalle_Auditoria" in xls_base.sheet_names:
       df_temp = pd.read_excel(xls_base, sheet_name="Detalle_Auditoria", header=0)
@@ -78,7 +88,7 @@ if os.path.exists(nombre_archivo_modelo_github):
 
 st.sidebar.markdown("---")
 
-# --- PROCESAMIENTO, VALIDACIÓN Y GESTIÓN DE HISTORIAL ---
+# --- PROCESAMIENTO Y VALIDACIÓN DE REPORTES ---
 if archivos_nuevos:
   lista_nuevos_dfs = []
   
@@ -94,7 +104,6 @@ if archivos_nuevos:
       df_v = pd.read_excel(file, sheet_name=0, header=0)
       df_v.columns = [str(c).strip() for c in df_v.columns]
 
-      # 1. Validación estricta de columnas
       faltantes = [col for col in columnas_obligatorias if col not in df_v.columns]
       tiene_responsable = "CODIGO-RESPONSABLE" in df_v.columns or "RESPONSABLE" in df_v.columns
       if not tiene_responsable:
@@ -115,11 +124,15 @@ if archivos_nuevos:
       df_normalizado["Ultimo Contacto"] = df_v["Ultimo Contacto"]
       df_normalizado["N° Cotización"] = df_v["N° Cotización"]
       df_normalizado["Unidad"] = df_v["Unidad"]
-      df_normalizado["Cantidad"] = pd.to_numeric(df_v["Cantidad"], errors="coerce").fillna(0)
+      
+      # Cantidad como entero
+      df_normalizado["Cantidad"] = pd.to_numeric(df_v["Cantidad"], errors="coerce").fillna(0).round(0).astype(int)
+      
+      # Valores numéricos
       df_normalizado["Valor + IGV"] = pd.to_numeric(df_v["Valor + IGV"], errors="coerce").fillna(0)
       df_normalizado["Chance de Venta"] = pd.to_numeric(df_v["Chance de Venta"], errors="coerce").fillna(0)
       
-      # Cálculos automáticos de ponderados
+      # Ponderados
       df_normalizado["Valor Ponderado (S/)"] = df_normalizado["Valor + IGV"] * df_normalizado["Chance de Venta"]
       df_normalizado["Cantidad Ponderada Prod."] = df_normalizado["Cantidad"] * df_normalizado["Chance de Venta"]
       
@@ -141,9 +154,7 @@ if archivos_nuevos:
     else:
       df_combinado = df_agregado
 
-    # --- REGLA DE DUPLICADOS EXACTOS (Misma Cotización + Misma Fecha Contacto + Mismo Chance) ---
-    # Si estas tres columnas son idénticas, se considera duplicado redundante y se elimina (keep="last").
-    # Si cambia la fecha o el chance, se conservan ambos registros para formar parte del historial.
+    # Deduplicar solo si Cotización, Último Contacto y Chance son idénticos
     df_combinado = df_combinado.drop_duplicates(
         subset=["N° Cotización", "Ultimo Contacto", "Chance de Venta"], 
         keep="last"
@@ -174,7 +185,6 @@ if (
       df_final = st.session_state["df_auditoria"].dropna(subset=["Cliente"])
       registros = df_final.to_dict("records")
       
-      # Escritura exacta fila por fila (13 columnas)
       for r_idx, row in enumerate(registros, start=2):
         ws.cell(row=r_idx, column=1, value=row.get("Cliente", ""))
         ws.cell(row=r_idx, column=2, value=row.get("No. Contacto", ""))
@@ -183,21 +193,27 @@ if (
         ws.cell(row=r_idx, column=5, value=row.get("N° Cotización", ""))
         ws.cell(row=r_idx, column=6, value=row.get("Unidad", ""))
         
-        cant = row.get("Cantidad", 0)
-        importe = row.get("Valor + IGV", 0)
-        chance = row.get("Chance de Venta", 0)
+        cant = int(pd.to_numeric(row.get("Cantidad", 0), errors="coerce") or 0)
+        importe = float(pd.to_numeric(row.get("Valor + IGV", 0), errors="coerce") or 0)
+        chance = float(pd.to_numeric(row.get("Chance de Venta", 0), errors="coerce") or 0)
         
-        ws.cell(row=r_idx, column=7, value=cant)
-        ws.cell(row=r_idx, column=8, value=importe)
-        ws.cell(row=r_idx, column=9, value=chance)
+        c7 = ws.cell(row=r_idx, column=7, value=cant)
+        c7.number_format = '#,##0'
         
-        try: val_pond = float(importe) * float(chance)
-        except: val_pond = 0
-        try: cant_pond = float(cant) * float(chance)
-        except: cant_pond = 0
+        c8 = ws.cell(row=r_idx, column=8, value=importe)
+        c8.number_format = 'S/ #,##0.00'
+        
+        c9 = ws.cell(row=r_idx, column=9, value=chance)
+        c9.number_format = '0.00%'
+        
+        val_pond = importe * chance
+        cant_pond = cant * chance
             
-        ws.cell(row=r_idx, column=10, value=val_pond)
-        ws.cell(row=r_idx, column=11, value=cant_pond)
+        c10 = ws.cell(row=r_idx, column=10, value=val_pond)
+        c10.number_format = 'S/ #,##0.00'
+        
+        c11 = ws.cell(row=r_idx, column=11, value=cant_pond)
+        c11.number_format = '#,##0.00'
         
         ws.cell(row=r_idx, column=12, value=row.get("Mes Previsto", ""))
         ws.cell(row=r_idx, column=13, value=row.get("RESPONSABLE", ""))
@@ -259,11 +275,10 @@ with tab1:
   if not st.session_state["df_auditoria"].empty:
     df_aud = st.session_state["df_auditoria"].copy()
     
-    df_aud["Cantidad_Num"] = pd.to_numeric(df_aud["Cantidad"], errors="coerce").fillna(0)
+    df_aud["Cantidad_Num"] = pd.to_numeric(df_aud["Cantidad"], errors="coerce").fillna(0).astype(int)
     df_aud["Importe_Num"] = pd.to_numeric(df_aud["Valor + IGV"], errors="coerce").fillna(0)
     df_aud["Chance Num"] = pd.to_numeric(df_aud["Chance de Venta"], errors="coerce").fillna(0)
     
-    # --- FILTRAR CHANCE DE VENTA > 0% PARA EL RESUMEN ---
     df_aud = df_aud[df_aud["Chance Num"] > 0]
     
     if not df_aud.empty and "Mes Previsto" in df_aud.columns and "Unidad" in df_aud.columns:
@@ -302,7 +317,7 @@ with tab1:
       ).reset_index()
       
       df_resumen_display = df_resumen.copy()
-      df_resumen_display["Total_Cantidad"] = df_resumen_display["Total_Cantidad"].apply(lambda x: f"{x:,.2f}")
+      df_resumen_display["Total_Cantidad"] = df_resumen_display["Total_Cantidad"].apply(lambda x: f"{x:,.0f}")
       df_resumen_display["Total_Valor_IGV"] = df_resumen_display["Total_Valor_IGV"].apply(lambda x: f"S/ {x:,.2f}")
       df_resumen_display["Total_Cotizaciones"] = df_resumen_display["Total_Cotizaciones"].astype(str)
       
@@ -313,7 +328,7 @@ with tab1:
       
       col1, col2 = st.columns(2)
       with col1:
-        st.metric(label="📦 Cantidad Total Filtrada (Chance > 0%)", value=f"{total_general_cant:,.2f}")
+        st.metric(label="📦 Cantidad Total Filtrada (Chance > 0%)", value=f"{int(total_general_cant):,}")
       with col2:
         st.metric(label="💰 Valor Total con IGV (S/) Filtrado", value=f"S/ {total_general_val:,.2f}")
     else:
@@ -324,14 +339,25 @@ with tab1:
 with tab2:
   st.subheader("Seguimiento de Rendimiento Comercial")
   if not st.session_state["df_ventas"].empty:
-    st.dataframe(st.session_state["df_ventas"].style.set_properties(**{'text-align': 'left'}), use_container_width=True)
+    df_ventas_disp = st.session_state["df_ventas"].copy()
+    # Aplicar formato amigable si existen columnas numéricas en ventas
+    st.dataframe(df_ventas_disp.style.set_properties(**{'text-align': 'left'}), use_container_width=True)
   else:
-    st.info("Sube tu archivo consolidado base.")
+    st.info("Sube tu archivo consolidado base con la pestaña de Seguimiento de Ventas.")
 
 with tab3:
   st.subheader("Detalle General y Auditoría de Cotizaciones")
   if not st.session_state["df_auditoria"].empty:
-    st.dataframe(st.session_state["df_auditoria"].style.set_properties(**{'text-align': 'left'}), use_container_width=True)
+    df_aud_disp = st.session_state["df_auditoria"].copy()
+    # Formatear visualización en pantalla de auditoría
+    if "Valor + IGV" in df_aud_disp.columns:
+      df_aud_disp["Valor + IGV"] = df_aud_disp["Valor + IGV"].apply(lambda x: f"S/ {float(x):,.2f}" if pd.notna(x) else "")
+    if "Chance de Venta" in df_aud_disp.columns:
+      df_aud_disp["Chance de Venta"] = df_aud_disp["Chance de Venta"].apply(lambda x: f"{float(x)*100:,.2f}%" if pd.notna(x) else "")
+    if "Cantidad" in df_aud_disp.columns:
+      df_aud_disp["Cantidad"] = df_aud_disp["Cantidad"].apply(lambda x: f"{int(float(x)):,}" if pd.notna(x) else "")
+      
+    st.dataframe(df_aud_disp.style.set_properties(**{'text-align': 'left'}), use_container_width=True)
     st.success(f"Registros totales en el historial de auditoría: {len(st.session_state['df_auditoria'])}")
   else:
     st.info("Sube tus archivos.")
