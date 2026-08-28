@@ -11,10 +11,6 @@ st.set_page_config(
     page_title="Control de Compromisos y Producción", layout="wide"
 )
 
-st.set_page_config(
-    page_title="Control de Compromisos y Producción", layout="wide"
-)
-
 st.title("📊 Panel de Control: Producción y Seguimiento Comercial")
 st.markdown("Consolidación inteligente con formato y alineación automática.")
 
@@ -157,11 +153,39 @@ if (
       ws = wb["Detalle_Auditoria"]
       if ws.max_row >= 4:
         ws.delete_rows(4, ws.max_row - 3)
-      for r_idx, row in enumerate(
-          st.session_state["df_auditoria"].values, start=4
-      ):
-        for c_idx, val in enumerate(row, start=1):
-          ws.cell(row=r_idx, column=c_idx, value=val)
+      
+      # --- INYECCIÓN MAPEADA EXACTA COLUMNA POR COLUMNA ---
+      registros = st.session_state["df_auditoria"].to_dict("records")
+      
+      for r_idx, row in enumerate(registros, start=4):
+        # Mapeo directo para evitar el descuadre
+        ws.cell(row=r_idx, column=1, value=row.get("Nombre", ""))
+        ws.cell(row=r_idx, column=2, value=row.get("No. Contacto", ""))
+        ws.cell(row=r_idx, column=3, value=row.get("1o. Contacto", ""))
+        ws.cell(row=r_idx, column=4, value=row.get("Ultimo Contacto", ""))
+        ws.cell(row=r_idx, column=5, value=row.get("Numero", ""))
+        ws.cell(row=r_idx, column=6, value=row.get("Unidad", ""))
+        
+        cant = row.get("Cantid", 0)
+        importe = row.get("Valor + IGV", 0)
+        chance = row.get("Chance Venta", 0)
+        
+        ws.cell(row=r_idx, column=7, value=cant)
+        ws.cell(row=r_idx, column=8, value=importe)
+        ws.cell(row=r_idx, column=9, value=chance)
+        
+        # Cálculo automático de los ponderados (Columna 10 y 11)
+        try: val_pond = float(importe) * float(chance)
+        except: val_pond = 0
+        try: cant_pond = float(cant) * float(chance)
+        except: cant_pond = 0
+            
+        ws.cell(row=r_idx, column=10, value=val_pond)
+        ws.cell(row=r_idx, column=11, value=cant_pond)
+        
+        # Acomodar fecha y reporte en las últimas columnas
+        ws.cell(row=r_idx, column=12, value=row.get("Previsto", ""))
+        ws.cell(row=r_idx, column=13, value=row.get("Cierre_Semanal", ""))
 
       # --- APLICAR CORRECCIÓN DE DISEÑO Y ALINEACIÓN EN MEMORIA ---
       data_font = Font(name="Calibri", size=10)
@@ -172,10 +196,10 @@ if (
           bottom=Side(style="thin", color="D9D9D9"),
       )
 
-      for row in ws.iter_rows(
+      for row_cells in ws.iter_rows(
           min_row=4, max_row=ws.max_row, min_col=1, max_col=ws.max_column
       ):
-        for cell in row:
+        for cell in row_cells:
           cell.font = data_font
           cell.border = border_style
           if isinstance(cell.value, (int, float)):
