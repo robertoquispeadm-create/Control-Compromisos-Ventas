@@ -47,12 +47,13 @@ if archivo_base is not None:
     xls_base = pd.ExcelFile(archivo_base)
 
     if "Seguimiento_Ventas" in xls_base.sheet_names:
-      df_temp = pd.read_excel(xls_base, sheet_name="Seguimiento_Ventas", header=1)
+      df_temp = pd.read_excel(xls_base, sheet_name="Seguimiento_Ventas", header=0)
+      df_temp.columns = [str(c).strip() for c in df_temp.columns]
       df_temp = df_temp.replace(r'^\s*$', float('nan'), regex=True).dropna(how="all")
       st.session_state["df_ventas"] = df_temp
 
     if "Detalle_Auditoria" in xls_base.sheet_names:
-      df_temp = pd.read_excel(xls_base, sheet_name="Detalle_Auditoria", header=1)
+      df_temp = pd.read_excel(xls_base, sheet_name="Detalle_Auditoria", header=0)
       df_temp.columns = [str(c).strip() for c in df_temp.columns]
       df_temp = df_temp.replace(r'^\s*$', float('nan'), regex=True).dropna(how="all")
       if "Cliente" in df_temp.columns:
@@ -146,8 +147,8 @@ if (
         and not st.session_state["df_auditoria"].empty
     ):
       ws = wb["Detalle_Auditoria"]
-      if ws.max_row >= 4:
-        ws.delete_rows(4, ws.max_row - 3)
+      if ws.max_row >= 2:
+        ws.delete_rows(2, ws.max_row - 1)
       
       df_final = st.session_state["df_auditoria"].replace(r'^\s*$', float('nan'), regex=True)
       df_final = df_final.dropna(how="all")
@@ -156,7 +157,7 @@ if (
       
       registros = df_final.fillna("").to_dict("records")
       
-      for r_idx, row in enumerate(registros, start=4):
+      for r_idx, row in enumerate(registros, start=2):
         ws.cell(row=r_idx, column=1, value=row.get("Cliente", ""))
         ws.cell(row=r_idx, column=2, value=row.get("No. Contacto", ""))
         ws.cell(row=r_idx, column=3, value=row.get("1o. Contacto", ""))
@@ -192,15 +193,12 @@ if (
       )
 
       for row_cells in ws.iter_rows(
-          min_row=4, max_row=ws.max_row, min_col=1, max_col=ws.max_column
+          min_row=2, max_row=ws.max_row, min_col=1, max_col=ws.max_column
       ):
         for cell in row_cells:
           cell.font = data_font
           cell.border = border_style
-          if isinstance(cell.value, (int, float)):
-            cell.alignment = Alignment(horizontal="right", vertical="center")
-          else:
-            cell.alignment = Alignment(horizontal="left", vertical="center")
+          cell.alignment = Alignment(horizontal="left", vertical="center")
 
       for col in ws.columns:
         max_length = 0
@@ -243,11 +241,9 @@ with tab1:
   if not st.session_state["df_auditoria"].empty:
     df_aud = st.session_state["df_auditoria"].copy()
     
-    # Detección flexible de nombres de columnas para evitar KeyErrors
     col_cantidad = "Cantidad" if "Cantidad" in df_aud.columns else "Cantidad Bruta"
     col_importe = "Valor + IGV" if "Valor + IGV" in df_aud.columns else "Importe Bruto (S/)"
     
-    # Convertir datos numéricos de forma segura
     df_aud["Cantidad_Num"] = pd.to_numeric(df_aud[col_cantidad], errors="coerce").fillna(0) if col_cantidad in df_aud.columns else 0
     df_aud["Importe_Num"] = pd.to_numeric(df_aud[col_importe], errors="coerce").fillna(0) if col_importe in df_aud.columns else 0
     df_aud["Chance Num"] = pd.to_numeric(df_aud["Chance de Venta"], errors="coerce").fillna(0) if "Chance de Venta" in df_aud.columns else 0
@@ -256,7 +252,6 @@ with tab1:
     df_aud = df_aud[df_aud["Chance Num"] > 0]
     
     if not df_aud.empty and "Mes Previsto" in df_aud.columns and "Unidad" in df_aud.columns:
-      # --- FORMATEAR MES A YYYY-MM ---
       def formatear_mes_yyyy_mm(val):
         if pd.isna(val):
           return "Sin Especificar"
@@ -269,10 +264,7 @@ with tab1:
 
       df_aud["Mes Formateado"] = df_aud["Mes Previsto"].apply(formatear_mes_yyyy_mm)
       
-      # Obtener lista de meses únicos ordenados para el filtro
       meses_disponibles = sorted([str(m) for m in df_aud["Mes Formateado"].unique()])
-      
-      # Mes actual en formato YYYY-MM para selección por defecto
       mes_actual_default = datetime.now().strftime("%Y-%m")
       defaults = [mes_actual_default] if mes_actual_default in meses_disponibles else meses_disponibles
       
@@ -283,28 +275,23 @@ with tab1:
           default=defaults if defaults else meses_disponibles
       )
       
-      # Filtrar según selección web
       if meses_seleccionados:
         df_filtrado = df_aud[df_aud["Mes Formateado"].isin(meses_seleccionados)]
       else:
         df_filtrado = df_aud.copy()
 
-      # Agrupar por Mes Formateado y Unidad
       df_resumen = df_filtrado.groupby(["Mes Formateado", "Unidad"], dropna=False).agg(
           Total_Cantidad=("Cantidad_Num", "sum"),
           Total_Valor_IGV=("Importe_Num", "sum"),
           Total_Cotizaciones=("N° Cotización", "count") if "N° Cotización" in df_filtrado.columns else ("Cliente", "count")
       ).reset_index()
       
-      # --- APLICAR FORMATO CONTABLE S/ Y ALINEACIÓN A LA IZQUIERDA ---
       df_resumen_display = df_resumen.copy()
       df_resumen_display["Total_Cantidad"] = df_resumen_display["Total_Cantidad"].apply(lambda x: f"{x:,.2f}")
       df_resumen_display["Total_Valor_IGV"] = df_resumen_display["Total_Valor_IGV"].apply(lambda x: f"S/ {x:,.2f}")
       df_resumen_display["Total_Cotizaciones"] = df_resumen_display["Total_Cotizaciones"].astype(str)
       
-      # Estilizar para alinear todo a la izquierda en la visualización web
       df_styled = df_resumen_display.style.set_properties(**{'text-align': 'left'})
-      
       st.dataframe(df_styled, use_container_width=True)
       
       total_general_cant = df_resumen["Total_Cantidad"].sum()
@@ -323,14 +310,16 @@ with tab1:
 with tab2:
   st.subheader("Seguimiento de Rendimiento Comercial")
   if not st.session_state["df_ventas"].empty:
-    st.dataframe(st.session_state["df_ventas"], use_container_width=True)
+    df_ventas_styled = st.session_state["df_ventas"].style.set_properties(**{'text-align': 'left'})
+    st.dataframe(df_ventas_styled, use_container_width=True)
   else:
     st.info("Sube tu archivo consolidado base.")
 
 with tab3:
   st.subheader("Detalle General y Auditoría de Cotizaciones")
   if not st.session_state["df_auditoria"].empty:
-    st.dataframe(st.session_state["df_auditoria"], use_container_width=True)
+    df_auditoria_styled = st.session_state["df_auditoria"].style.set_properties(**{'text-align': 'left'})
+    st.dataframe(df_auditoria_styled, use_container_width=True)
     st.success(
         f"Registros totales en auditoría: {len(st.session_state['df_auditoria'])}"
     )
