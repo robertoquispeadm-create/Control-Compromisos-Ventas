@@ -52,8 +52,8 @@ if archivo_base is not None:
       st.session_state["df_ventas"] = df_temp
 
     if "Detalle_Auditoria" in xls_base.sheet_names:
-      # Corregido a header=1 para tomar las cabeceras reales de Detalle_Auditoria
       df_temp = pd.read_excel(xls_base, sheet_name="Detalle_Auditoria", header=1)
+      df_temp.columns = [str(c).strip() for c in df_temp.columns]
       df_temp = df_temp.replace(r'^\s*$', float('nan'), regex=True).dropna(how="all")
       if "Cliente" in df_temp.columns:
         df_temp = df_temp.dropna(subset=["Cliente"])
@@ -116,11 +116,6 @@ if archivos_nuevos:
           :, ~df_vendedor.columns.str.contains("^Unnamed")
       ]
       
-      df_vendedor = df_vendedor.rename(columns={
-          "Cantidad": "Cantidad Bruta",
-          "Valor + IGV": "Importe Bruto (S/)"
-      })
-      
       df_vendedor["Cierre_Semanal"] = file.name
 
       if not st.session_state["df_auditoria"].empty:
@@ -169,8 +164,8 @@ if (
         ws.cell(row=r_idx, column=5, value=row.get("N° Cotización", ""))
         ws.cell(row=r_idx, column=6, value=row.get("Unidad", ""))
         
-        cant = row.get("Cantidad Bruta", 0)
-        importe = row.get("Importe Bruto (S/)", 0)
+        cant = row.get("Cantidad", row.get("Cantidad Bruta", 0))
+        importe = row.get("Valor + IGV", row.get("Importe Bruto (S/)", 0))
         chance = row.get("Chance de Venta", 0)
         
         ws.cell(row=r_idx, column=7, value=cant if cant != "" else None)
@@ -248,10 +243,14 @@ with tab1:
   if not st.session_state["df_auditoria"].empty:
     df_aud = st.session_state["df_auditoria"].copy()
     
-    # Convertir datos numéricos
-    df_aud["Cantidad Bruta"] = pd.to_numeric(df_aud["Cantidad Bruta"], errors="coerce").fillna(0)
-    df_aud["Importe Bruto (S/)"] = pd.to_numeric(df_aud["Importe Bruto (S/)"], errors="coerce").fillna(0)
-    df_aud["Chance Num"] = pd.to_numeric(df_aud["Chance de Venta"], errors="coerce").fillna(0)
+    # Detección flexible de nombres de columnas para evitar KeyErrors
+    col_cantidad = "Cantidad" if "Cantidad" in df_aud.columns else "Cantidad Bruta"
+    col_importe = "Valor + IGV" if "Valor + IGV" in df_aud.columns else "Importe Bruto (S/)"
+    
+    # Convertir datos numéricos de forma segura
+    df_aud["Cantidad_Num"] = pd.to_numeric(df_aud[col_cantidad], errors="coerce").fillna(0) if col_cantidad in df_aud.columns else 0
+    df_aud["Importe_Num"] = pd.to_numeric(df_aud[col_importe], errors="coerce").fillna(0) if col_importe in df_aud.columns else 0
+    df_aud["Chance Num"] = pd.to_numeric(df_aud["Chance de Venta"], errors="coerce").fillna(0) if "Chance de Venta" in df_aud.columns else 0
     
     # --- FILTRAR CHANCE DE VENTA > 0% ---
     df_aud = df_aud[df_aud["Chance Num"] > 0]
@@ -292,9 +291,9 @@ with tab1:
 
       # Agrupar por Mes Formateado y Unidad
       df_resumen = df_filtrado.groupby(["Mes Formateado", "Unidad"], dropna=False).agg(
-          Total_Cantidad=("Cantidad Bruta", "sum"),
-          Total_Valor_IGV=("Importe Bruto (S/)", "sum"),
-          Total_Cotizaciones=("N° Cotización", "count")
+          Total_Cantidad=("Cantidad_Num", "sum"),
+          Total_Valor_IGV=("Importe_Num", "sum"),
+          Total_Cotizaciones=("N° Cotización", "count") if "N° Cotización" in df_filtrado.columns else ("Cliente", "count")
       ).reset_index()
       
       # --- APLICAR FORMATO CONTABLE S/ Y ALINEACIÓN A LA IZQUIERDA ---
