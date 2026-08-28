@@ -8,7 +8,7 @@ st.set_page_config(
 )
 
 st.title("📊 Panel de Control: Producción y Seguimiento Comercial")
-st.markdown("Consolidación inteligente con lectura exacta de cabeceras.")
+st.markdown("Consolidación inteligente de reportes individuales y base.")
 
 st.sidebar.header("📂 Gestión de Archivos")
 
@@ -32,7 +32,7 @@ df_plan_total = pd.DataFrame()
 df_ventas_total = pd.DataFrame()
 df_auditoria_total = pd.DataFrame()
 
-# Leer el archivo consolidado base si se sube (usando header=2 para capturar las cabeceras reales de la fila 3)
+# Leer el archivo consolidado base si se sube (usando header=2 para capturar las cabeceras reales)
 if archivo_base is not None:
   try:
     xls_base = pd.ExcelFile(archivo_base)
@@ -63,19 +63,21 @@ if archivos_nuevos:
   for file in archivos_nuevos:
     try:
       xls = pd.ExcelFile(file)
-      df_vendedor = pd.read_excel(xls, sheet_name=0, header=0).dropna(
+      # Los reportes individuales tienen la cabecera real en la fila 2 (índice 2) o combinada filas 1-2.
+      # Usamos header=2 que contiene: Cliente, No. Contacto, Ultimo Contacto, Cotizacion, etc.
+      df_vendedor = pd.read_excel(xls, sheet_name=0, header=2).dropna(
           how="all"
       )
 
-      columnas_texto = " ".join([str(c) for c in df_vendedor.columns])
-      if "Cotizacion" not in columnas_texto and "Numero" not in columnas_texto:
-        st.sidebar.error(
-            f"❌ El archivo '{file.name}' no tiene la estructura correcta en A1."
-        )
-        continue
+      # Limpiar nombres de columnas por si tienen espacios o valores NaN
+      df_vendedor = df_vendedor.loc[
+          :, ~df_vendedor.columns.str.contains("^Unnamed")
+      ]
 
+      # Agregar columna de trazabilidad con el nombre del archivo
       df_vendedor["Cierre_Semanal"] = file.name
 
+      # Unir al consolidado de auditoría
       if not df_auditoria_total.empty:
         df_auditoria_total = pd.concat(
             [df_auditoria_total, df_vendedor], ignore_index=True
