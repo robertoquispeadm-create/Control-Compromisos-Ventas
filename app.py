@@ -13,7 +13,7 @@ st.set_page_config(
 )
 
 st.title("📊 Panel de Control: Seguimiento Comercial")
-st.markdown("Consolidación inteligente con validación estricta de columnas.")
+st.markdown("Consolidación inteligente con preservación de historial comercial.")
 
 st.sidebar.header("📂 Gestión de Archivos")
 
@@ -78,11 +78,10 @@ if os.path.exists(nombre_archivo_modelo_github):
 
 st.sidebar.markdown("---")
 
-# --- VALIDACIÓN ESTRICTA Y PROCESAMIENTO DE REPORTES ---
+# --- PROCESAMIENTO, VALIDACIÓN Y GESTIÓN DE HISTORIAL ---
 if archivos_nuevos:
   lista_nuevos_dfs = []
   
-  # Columnas estrictas que DEBE tener el reporte del vendedor (permitiendo CODIGO-RESPONSABLE o RESPONSABLE)
   columnas_obligatorias = [
       "Cliente", "No. Contacto", "1o. Contacto", "Ultimo Contacto", 
       "N° Cotización", "Unidad", "Cantidad", "Valor + IGV", 
@@ -95,23 +94,20 @@ if archivos_nuevos:
       df_v = pd.read_excel(file, sheet_name=0, header=0)
       df_v.columns = [str(c).strip() for c in df_v.columns]
 
-      # 1. Validar columnas faltantes obligatorias básicas
+      # 1. Validación estricta de columnas
       faltantes = [col for col in columnas_obligatorias if col not in df_v.columns]
-      
-      # 2. Validar que tenga alguna forma de responsable
       tiene_responsable = "CODIGO-RESPONSABLE" in df_v.columns or "RESPONSABLE" in df_v.columns
       if not tiene_responsable:
         faltantes.append("CODIGO-RESPONSABLE (o RESPONSABLE)")
 
       if faltantes:
         st.sidebar.error(
-            f"❌ **Rechazado ('{file.name}')**: Le falta(n) la(s) columna(s) obligatoria(s): **{', '.join(faltantes)}**."
+            f"❌ **Rechazado ('{file.name}')**: Le falta(n) la(s) columna(s): **{', '.join(faltantes)}**."
         )
-        continue  # Bloquea el archivo si no cumple la estructura
+        continue
 
       df_v = df_v.dropna(subset=["Cliente"])
 
-      # Construcción exacta de las 13 columnas base
       df_normalizado = pd.DataFrame()
       df_normalizado["Cliente"] = df_v["Cliente"]
       df_normalizado["No. Contacto"] = df_v["No. Contacto"]
@@ -123,7 +119,7 @@ if archivos_nuevos:
       df_normalizado["Valor + IGV"] = pd.to_numeric(df_v["Valor + IGV"], errors="coerce").fillna(0)
       df_normalizado["Chance de Venta"] = pd.to_numeric(df_v["Chance de Venta"], errors="coerce").fillna(0)
       
-      # Cálculo automático de ponderados
+      # Cálculos automáticos de ponderados
       df_normalizado["Valor Ponderado (S/)"] = df_normalizado["Valor + IGV"] * df_normalizado["Chance de Venta"]
       df_normalizado["Cantidad Ponderada Prod."] = df_normalizado["Cantidad"] * df_normalizado["Chance de Venta"]
       
@@ -139,12 +135,21 @@ if archivos_nuevos:
 
   if lista_nuevos_dfs:
     df_agregado = pd.concat(lista_nuevos_dfs, ignore_index=True)
+    
     if not st.session_state["df_auditoria"].empty:
-      st.session_state["df_auditoria"] = pd.concat(
-          [st.session_state["df_auditoria"], df_agregado], ignore_index=True
-      ).drop_duplicates(subset=["N° Cotización", "Cliente"], keep="last")
+      df_combinado = pd.concat([st.session_state["df_auditoria"], df_agregado], ignore_index=True)
     else:
-      st.session_state["df_auditoria"] = df_agregado
+      df_combinado = df_agregado
+
+    # --- REGLA DE DUPLICADOS EXACTOS (Misma Cotización + Misma Fecha Contacto + Mismo Chance) ---
+    # Si estas tres columnas son idénticas, se considera duplicado redundante y se elimina (keep="last").
+    # Si cambia la fecha o el chance, se conservan ambos registros para formar parte del historial.
+    df_combinado = df_combinado.drop_duplicates(
+        subset=["N° Cotización", "Ultimo Contacto", "Chance de Venta"], 
+        keep="last"
+    )
+    
+    st.session_state["df_auditoria"] = df_combinado
 
 # --- GENERACIÓN DEL EXCEL FINAL ---
 if (
@@ -258,6 +263,7 @@ with tab1:
     df_aud["Importe_Num"] = pd.to_numeric(df_aud["Valor + IGV"], errors="coerce").fillna(0)
     df_aud["Chance Num"] = pd.to_numeric(df_aud["Chance de Venta"], errors="coerce").fillna(0)
     
+    # --- FILTRAR CHANCE DE VENTA > 0% PARA EL RESUMEN ---
     df_aud = df_aud[df_aud["Chance Num"] > 0]
     
     if not df_aud.empty and "Mes Previsto" in df_aud.columns and "Unidad" in df_aud.columns:
@@ -326,6 +332,6 @@ with tab3:
   st.subheader("Detalle General y Auditoría de Cotizaciones")
   if not st.session_state["df_auditoria"].empty:
     st.dataframe(st.session_state["df_auditoria"].style.set_properties(**{'text-align': 'left'}), use_container_width=True)
-    st.success(f"Registros totales en auditoría: {len(st.session_state['df_auditoria'])}")
+    st.success(f"Registros totales en el historial de auditoría: {len(st.session_state['df_auditoria'])}")
   else:
     st.info("Sube tus archivos.")
