@@ -243,36 +243,54 @@ tab1, tab2, tab3 = st.tabs(
 )
 
 with tab1:
-  st.subheader("Resumen Proyectado: Cantidades y Valores por Unidad")
+  st.subheader("Resumen Proyectado: Cantidades y Valores por Unidad (Chance > 0%)")
   if not st.session_state["df_auditoria"].empty:
     df_aud = st.session_state["df_auditoria"].copy()
     
+    # Convertir datos numéricos
     df_aud["Cantidad Bruta"] = pd.to_numeric(df_aud["Cantidad Bruta"], errors="coerce").fillna(0)
     df_aud["Importe Bruto (S/)"] = pd.to_numeric(df_aud["Importe Bruto (S/)"], errors="coerce").fillna(0)
+    df_aud["Chance Num"] = pd.to_numeric(df_aud["Chance de Venta"], errors="coerce").fillna(0)
     
-    if "Mes Previsto" in df_aud.columns and "Unidad" in df_aud.columns:
-      # Obtener lista de meses únicos para el filtro interactivo
-      meses_disponibles = sorted([str(m) for m in df_aud["Mes Previsto"].dropna().unique()])
+    # --- FILTRAR CHANCE DE VENTA > 0% ---
+    df_aud = df_aud[df_aud["Chance Num"] > 0]
+    
+    if not df_aud.empty and "Mes Previsto" in df_aud.columns and "Unidad" in df_aud.columns:
+      # --- FORMATEAR MES A YYYY-MM ---
+      def formatear_mes_yyyy_mm(val):
+        if pd.isna(val):
+          return "Sin Especificar"
+        try:
+          dt = pd.to_datetime(val)
+          return dt.strftime("%Y-%m")
+        except:
+          s = str(val).strip()
+          return s[:7] if len(s) >= 7 else s
+
+      df_aud["Mes Formateado"] = df_aud["Mes Previsto"].apply(formatear_mes_yyyy_mm)
       
-      # Intentar seleccionar el mes actual por defecto si existe en los datos
-      mes_actual_str = datetime.now().strftime("%B").capitalize() # o texto similar
-      default_selection = meses_disponibles if meses_disponibles else []
+      # Obtener lista de meses únicos ordenados para el filtro
+      meses_disponibles = sorted([str(m) for m in df_aud["Mes Formateado"].unique()])
+      
+      # Mes actual en formato YYYY-MM para selección por defecto
+      mes_actual_default = datetime.now().strftime("%Y-%m")
+      defaults = [mes_actual_default] if mes_actual_default in meses_disponibles else meses_disponibles
       
       st.markdown("### 🎛️ Filtros Interactivos")
       meses_seleccionados = st.multiselect(
-          "Selecciona el Mes Previsto (puedes marcar uno o varios, o dejarlo todo seleccionado):",
+          "Selecciona el Mes Previsto (YYYY-MM):",
           options=meses_disponibles,
-          default=meses_disponibles
+          default=defaults if defaults else meses_disponibles
       )
       
-      # Filtrar dataframe según lo que el usuario elija en la web
+      # Filtrar según selección web
       if meses_seleccionados:
-        df_filtrado = df_aud[df_aud["Mes Previsto"].astype(str).isin(meses_seleccionados)]
+        df_filtrado = df_aud[df_aud["Mes Formateado"].isin(meses_seleccionados)]
       else:
         df_filtrado = df_aud.copy()
 
-      # Agrupar por Unidad (y opcionalmente mantener detalle por mes si hay varios)
-      df_resumen = df_filtrado.groupby(["Mes Previsto", "Unidad"], dropna=False).agg(
+      # Agrupar por Mes Formateado y Unidad
+      df_resumen = df_filtrado.groupby(["Mes Formateado", "Unidad"], dropna=False).agg(
           Total_Cantidad=("Cantidad Bruta", "sum"),
           Total_Valor_IGV=("Importe Bruto (S/)", "sum"),
           Total_Cotizaciones=("N° Cotización", "count")
@@ -285,11 +303,11 @@ with tab1:
       
       col1, col2 = st.columns(2)
       with col1:
-        st.metric(label="📦 Cantidad Total Filtrada", value=f"{total_general_cant:,.2f}")
+        st.metric(label="📦 Cantidad Total Filtrada (Chance > 0%)", value=f"{total_general_cant:,.2f}")
       with col2:
         st.metric(label="💰 Valor Total con IGV (S/) Filtrado", value=f"S/ {total_general_val:,.2f}")
     else:
-      st.warning("No se encontraron las columnas 'Mes Previsto' o 'Unidad' en los reportes.")
+      st.warning("No hay registros con Chance de Venta mayor a 0% o faltan columnas requeridas.")
   else:
     st.info("Sube tus reportes individuales o archivo base para visualizar el resumen.")
 
