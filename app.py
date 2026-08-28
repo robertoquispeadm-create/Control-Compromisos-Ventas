@@ -108,14 +108,10 @@ if archivos_nuevos:
       df_normalizado["N° Cotización"] = df_v["N° Cotización"]
       df_normalizado["Unidad"] = df_v["Unidad"]
       
-      # Cantidad como entero
       df_normalizado["Cantidad"] = pd.to_numeric(df_v["Cantidad"], errors="coerce").fillna(0).round(0).astype(int)
-      
-      # Valores numéricos
       df_normalizado["Valor + IGV"] = pd.to_numeric(df_v["Valor + IGV"], errors="coerce").fillna(0)
       df_normalizado["Chance de Venta"] = pd.to_numeric(df_v["Chance de Venta"], errors="coerce").fillna(0)
       
-      # Ponderados
       df_normalizado["Valor Ponderado (S/)"] = df_normalizado["Valor + IGV"] * df_normalizado["Chance de Venta"]
       df_normalizado["Cantidad Ponderada Prod."] = df_normalizado["Cantidad"] * df_normalizado["Chance de Venta"]
       
@@ -173,38 +169,23 @@ if not st.session_state["df_auditoria"].empty:
         importe = float(pd.to_numeric(row.get("Valor + IGV", 0), errors="coerce") or 0)
         chance = float(pd.to_numeric(row.get("Chance de Venta", 0), errors="coerce") or 0)
         
-        c7 = ws.cell(row=r_idx, column=7, value=cant)
-        c7.number_format = '#,##0'
+        ws.cell(row=r_idx, column=7, value=cant).number_format = '#,##0'
+        ws.cell(row=r_idx, column=8, value=importe).number_format = 'S/ #,##0.00'
+        ws.cell(row=r_idx, column=9, value=chance).number_format = '0.00%'
         
-        c8 = ws.cell(row=r_idx, column=8, value=importe)
-        c8.number_format = 'S/ #,##0.00'
-        
-        c9 = ws.cell(row=r_idx, column=9, value=chance)
-        c9.number_format = '0.00%'
-        
-        val_pond = importe * chance
-        cant_pond = cant * chance
-            
-        c10 = ws.cell(row=r_idx, column=10, value=val_pond)
-        c10.number_format = 'S/ #,##0.00'
-        
-        c11 = ws.cell(row=r_idx, column=11, value=cant_pond)
-        c11.number_format = '#,##0.00'
+        ws.cell(row=r_idx, column=10, value=importe * chance).number_format = 'S/ #,##0.00'
+        ws.cell(row=r_idx, column=11, value=cant * chance).number_format = '#,##0.00'
         
         ws.cell(row=r_idx, column=12, value=row.get("Mes Previsto", ""))
         ws.cell(row=r_idx, column=13, value=row.get("RESPONSABLE", ""))
 
       data_font = Font(name="Calibri", size=10)
       border_style = Border(
-          left=Side(style="thin", color="D9D9D9"),
-          right=Side(style="thin", color="D9D9D9"),
-          top=Side(style="thin", color="D9D9D9"),
-          bottom=Side(style="thin", color="D9D9D9"),
+          left=Side(style="thin", color="D9D9D9"), right=Side(style="thin", color="D9D9D9"),
+          top=Side(style="thin", color="D9D9D9"), bottom=Side(style="thin", color="D9D9D9"),
       )
 
-      for row_cells in ws.iter_rows(
-          min_row=2, max_row=ws.max_row, min_col=1, max_col=ws.max_column
-      ):
+      for row_cells in ws.iter_rows(min_row=2, max_row=ws.max_row, min_col=1, max_col=ws.max_column):
         for cell in row_cells:
           cell.font = data_font
           cell.border = border_style
@@ -214,75 +195,64 @@ if not st.session_state["df_auditoria"].empty:
     excel_data = output.getvalue()
   else:
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
-      st.session_state["df_auditoria"].to_excel(
-          writer, sheet_name="Detalle_Auditoria", index=False
-      )
+      st.session_state["df_auditoria"].to_excel(writer, sheet_name="Detalle_Auditoria", index=False)
     excel_data = output.getvalue()
 
   st.sidebar.download_button(
       label="📥 Descargar Consolidado Final Alineado",
       data=excel_data,
       file_name=nombre_archivo,
-      mime=(
-          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-      ),
+      mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   )
 
-# --- VISUALIZACIÓN EN PESTAÑAS ---
-tab1, tab2, tab3 = st.tabs(
-    [
-        "📦 Resumen por Mes y Unidad",
-        "💰 Seguimiento Ventas",
-        "📋 Detalle de Auditoría",
-    ]
-)
+# --- VISUALIZACIÓN EN PESTAÑAS CON BUSCADORES Y FILTROS ---
+tab1, tab2, tab3 = st.tabs([
+    "📦 Resumen por Mes y Unidad",
+    "💰 Seguimiento Ventas",
+    "📋 Detalle de Auditoría",
+])
 
 with tab1:
   st.subheader("Resumen Proyectado: Cantidades y Valores por Unidad (Chance > 0%)")
   if not st.session_state["df_auditoria"].empty:
     df_aud = st.session_state["df_auditoria"].copy()
-    
     df_aud["Cantidad_Num"] = pd.to_numeric(df_aud["Cantidad"], errors="coerce").fillna(0).astype(int)
     df_aud["Importe_Num"] = pd.to_numeric(df_aud["Valor + IGV"], errors="coerce").fillna(0)
     df_aud["Chance Num"] = pd.to_numeric(df_aud["Chance de Venta"], errors="coerce").fillna(0)
-    
     df_aud = df_aud[df_aud["Chance Num"] > 0]
     
     if not df_aud.empty and "Mes Previsto" in df_aud.columns and "Unidad" in df_aud.columns:
       def formatear_mes_yyyy_mm(val):
-        if pd.isna(val):
-          return "Sin Especificar"
+        if pd.isna(val): return "Sin Especificar"
         try:
-          dt = pd.to_datetime(val)
-          return dt.strftime("%Y-%m")
+          return pd.to_datetime(val).strftime("%Y-%m")
         except:
           s = str(val).strip()
           return s[:7] if len(s) >= 7 else s
 
       df_aud["Mes Formateado"] = df_aud["Mes Previsto"].apply(formatear_mes_yyyy_mm)
-      
       meses_disponibles = sorted([str(m) for m in df_aud["Mes Formateado"].unique()])
       mes_actual_default = datetime.now().strftime("%Y-%m")
       defaults = [mes_actual_default] if mes_actual_default in meses_disponibles else meses_disponibles
       
-      st.markdown("### 🎛️ Filtros Interactivos")
-      meses_seleccionados = st.multiselect(
-          "Selecciona el Mes Previsto (YYYY-MM):",
-          options=meses_disponibles,
-          default=defaults if defaults else meses_disponibles,
-          key="filtro_mes_tab1"
-      )
-      
-      if meses_seleccionados:
-        df_filtrado = df_aud[df_aud["Mes Formateado"].isin(meses_seleccionados)]
-      else:
-        df_filtrado = df_aud.copy()
+      col_f1, col_f2 = st.columns(2)
+      with col_f1:
+        meses_seleccionados = st.multiselect("Filtrar Mes Previsto:", options=meses_disponibles, default=defaults, key="m_tab1")
+      with col_f2:
+        buscar_tab1 = st.text_input("🔍 Buscar en Resumen (Unidad o Mes):", "", key="b_tab1")
 
-      df_resumen = df_filtrado.groupby(["Mes Formateado", "Unidad"], dropna=False).agg(
+      if meses_seleccionados:
+        df_aud = df_aud[df_aud["Mes Formateado"].isin(meses_seleccionados)]
+
+      df_resumen = df_aud.groupby(["Mes Formateado", "Unidad"], dropna=False).agg(
           Total_Cantidad=("Cantidad_Num", "sum"),
           Total_Valor_IGV=("Importe_Num", "sum"),
           Total_Cotizaciones=("N° Cotización", "count")
       ).reset_index()
+
+      if buscar_tab1:
+        mask = df_resumen.astype(str).apply(lambda x: x.str.contains(buscar_tab1, case=False, na=False)).any(axis=1)
+        df_resumen = df_resumen[mask]
       
       df_resumen_display = df_resumen.copy()
       df_resumen_display["Total_Cantidad"] = df_resumen_display["Total_Cantidad"].apply(lambda x: f"{x:,.0f}")
@@ -291,48 +261,42 @@ with tab1:
       
       st.dataframe(df_resumen_display.style.set_properties(**{'text-align': 'left'}), use_container_width=True)
       
-      total_general_cant = df_resumen["Total_Cantidad"].sum()
-      total_general_val = df_resumen["Total_Valor_IGV"].sum()
+      total_general_cant = df_resumen["Total_Cantidad"].sum() if not df_resumen.empty else 0
+      total_general_val = df_resumen["Total_Valor_IGV"].sum() if not df_resumen.empty else 0
       
       col1, col2 = st.columns(2)
       with col1:
-        st.metric(label="📦 Cantidad Total Filtrada (Chance > 0%)", value=f"{int(total_general_cant):,}")
+        st.metric(label="📦 Cantidad Total Filtrada", value=f"{int(total_general_cant):,}")
       with col2:
-        st.metric(label="💰 Valor Total con IGV (S/) Filtrado", value=f"S/ {total_general_val:,.2f}")
+        st.metric(label="💰 Valor Total con IGV (S/)", value=f"S/ {total_general_val:,.2f}")
     else:
       st.warning("No hay registros con Chance de Venta mayor a 0%.")
   else:
     st.info("Sube tus archivos para visualizar el resumen.")
 
 with tab2:
-  st.subheader("Seguimiento de Ventas (Calculado Automáticamente por Mes y Unidad)")
+  st.subheader("Seguimiento de Ventas (Calculado Automáticamente)")
   if not st.session_state["df_auditoria"].empty:
     df_ventas_calc = st.session_state["df_auditoria"].copy()
-    
     df_ventas_calc["Importe_Num"] = pd.to_numeric(df_ventas_calc["Valor + IGV"], errors="coerce").fillna(0)
-    df_ventas_calc["Chance Num"] = pd.to_numeric(df_ventas_calc["Chance de Venta"], errors="coerce").fillna(0)
     
     if "Mes Previsto" in df_ventas_calc.columns and "Unidad" in df_ventas_calc.columns:
-      def formatear_mes_yyyy_mm(val):
-        if pd.isna(val):
-          return "Sin Especificar"
-        try:
-          dt = pd.to_datetime(val)
-          return dt.strftime("%Y-%m")
-        except:
-          s = str(val).strip()
-          return s[:7] if len(s) >= 7 else s
-
-      df_ventas_calc["Mes Formateado"] = df_ventas_calc["Mes Previsto"].apply(formatear_mes_yyyy_mm)
+      df_ventas_calc["Mes Formateado"] = df_ventas_calc["Mes Previsto"].apply(
+          lambda x: pd.to_datetime(x).strftime("%Y-%m") if pd.notna(x) and not pd.isna(pd.to_datetime(x, errors='coerce')) else str(x)[:7]
+      )
       
-      # Agregación para Seguimiento de Ventas
+      buscar_tab2 = st.text_input("🔍 Buscar en Seguimiento Ventas (Unidad, Mes...):", "", key="b_tab2")
+
       df_seg = df_ventas_calc.groupby(["Mes Formateado", "Unidad"], dropna=False).agg(
           N_Cotizaciones=("N° Cotización", "count"),
           Pipeline_Bruto=("Importe_Num", "sum"),
           Pipeline_Realista_Ponderado=("Valor Ponderado (S/)", "sum")
       ).reset_index()
+
+      if buscar_tab2:
+        mask = df_seg.astype(str).apply(lambda x: x.str.contains(buscar_tab2, case=False, na=False)).any(axis=1)
+        df_seg = df_seg[mask]
       
-      # Aplicar formatos solicitados: Soles (2 decimales), Enteros para cantidad
       df_seg_display = df_seg.copy()
       df_seg_display["N_Cotizaciones"] = df_seg_display["N_Cotizaciones"].apply(lambda x: f"{int(x):,}")
       df_seg_display["Pipeline_Bruto"] = df_seg_display["Pipeline_Bruto"].apply(lambda x: f"S/ {x:,.2f}")
@@ -340,7 +304,7 @@ with tab2:
       
       st.dataframe(df_seg_display.style.set_properties(**{'text-align': 'left'}), use_container_width=True)
     else:
-      st.warning("Faltan columnas requeridas ('Mes Previsto' o 'Unidad') para calcular el seguimiento de ventas.")
+      st.warning("Faltan columnas requeridas.")
   else:
     st.info("Sube tus archivos para generar el Seguimiento de Ventas.")
 
@@ -348,6 +312,14 @@ with tab3:
   st.subheader("Detalle General y Auditoría de Cotizaciones")
   if not st.session_state["df_auditoria"].empty:
     df_aud_disp = st.session_state["df_auditoria"].copy()
+    
+    # Buscador global para filtrar cualquier celda del historial (Cliente, N° Cotización, Vendedor, etc.)
+    buscar_tab3 = st.text_input("🔍 Buscar cualquier dato (Cliente, Cotización, Vendedor, Unidad...):", "", key="b_tab3")
+    
+    if buscar_tab3:
+      mask = df_aud_disp.astype(str).apply(lambda x: x.str.contains(buscar_tab3, case=False, na=False)).any(axis=1)
+      df_aud_disp = df_aud_disp[mask]
+
     if "Valor + IGV" in df_aud_disp.columns:
       df_aud_disp["Valor + IGV"] = df_aud_disp["Valor + IGV"].apply(lambda x: f"S/ {float(x):,.2f}" if pd.notna(x) else "")
     if "Chance de Venta" in df_aud_disp.columns:
@@ -356,6 +328,6 @@ with tab3:
       df_aud_disp["Cantidad"] = df_aud_disp["Cantidad"].apply(lambda x: f"{int(float(x)):,}" if pd.notna(x) else "")
       
     st.dataframe(df_aud_disp.style.set_properties(**{'text-align': 'left'}), use_container_width=True)
-    st.success(f"Registros totales en el historial de auditoría: {len(st.session_state['df_auditoria'])}")
+    st.success(f"Registros encontrados / mostrados: {len(df_aud_disp)}")
   else:
     st.info("Sube tus archivos.")
