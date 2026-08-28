@@ -8,10 +8,7 @@ st.set_page_config(
 )
 
 st.title("📊 Panel de Control: Producción y Seguimiento Comercial")
-st.markdown(
-    "Consolidación inteligente de reportes con soporte multihoja y estructura"
-    " oficial."
-)
+st.markdown("Consolidación inteligente con lectura exacta de cabeceras.")
 
 st.sidebar.header("📂 Gestión de Archivos")
 
@@ -35,31 +32,28 @@ df_plan_total = pd.DataFrame()
 df_ventas_total = pd.DataFrame()
 df_auditoria_total = pd.DataFrame()
 
-# Leer el archivo consolidado base si se sube
+# Leer el archivo consolidado base si se sube (usando header=2 para capturar las cabeceras reales de la fila 3)
 if archivo_base is not None:
   try:
     xls_base = pd.ExcelFile(archivo_base)
 
-    # Pestaña 1: Planificación (cabecera en la fila 1, índice 1)
     if "Planificacion_Produccion" in xls_base.sheet_names:
       df_plan_total = pd.read_excel(
-          xls_base, sheet_name="Planificacion_Produccion", header=1
+          xls_base, sheet_name="Planificacion_Produccion", header=2
       ).dropna(how="all")
 
-    # Pestaña 2: Seguimiento de Ventas (cabecera en la fila 1, índice 1)
     if "Seguimiento_Ventas" in xls_base.sheet_names:
       df_ventas_total = pd.read_excel(
-          xls_base, sheet_name="Seguimiento_Ventas", header=1
+          xls_base, sheet_name="Seguimiento_Ventas", header=2
       ).dropna(how="all")
 
-    # Pestaña 3: Detalle Auditoría (cabecera en la fila 1, índice 1)
     if "Detalle_Auditoria" in xls_base.sheet_names:
       df_auditoria_total = pd.read_excel(
-          xls_base, sheet_name="Detalle_Auditoria", header=1
+          xls_base, sheet_name="Detalle_Auditoria", header=2
       ).dropna(how="all")
 
     st.sidebar.success(
-        "✅ ¡Archivo consolidado base cargado con sus 3 pestañas!"
+        "✅ ¡Archivo consolidado base cargado con sus cabeceras correctas!"
     )
   except Exception as e:
     st.sidebar.error(f"⚠️ Error al leer el consolidado base: {e}")
@@ -69,7 +63,6 @@ if archivos_nuevos:
   for file in archivos_nuevos:
     try:
       xls = pd.ExcelFile(file)
-      # Los individuales se leen desde la primera fila (header=0) según acordamos
       df_vendedor = pd.read_excel(xls, sheet_name=0, header=0).dropna(
           how="all"
       )
@@ -83,7 +76,6 @@ if archivos_nuevos:
 
       df_vendedor["Cierre_Semanal"] = file.name
 
-      # Unir al consolidado de auditoría/ventas detalladas según corresponda
       if not df_auditoria_total.empty:
         df_auditoria_total = pd.concat(
             [df_auditoria_total, df_vendedor], ignore_index=True
@@ -159,9 +151,7 @@ with tab3:
   st.subheader("Detalle General y Auditoría de Cotizaciones")
   if not df_auditoria_total.empty:
     st.dataframe(df_auditoria_total, use_container_width=True)
-    st.success(
-        f"Registros totales en auditoría: {len(df_auditoria_total)}"
-    )
+    st.success(f"Registros totales en auditoría: {len(df_auditoria_total)}")
   else:
     st.info(
         "Sube tu archivo consolidado o los reportes individuales de los"
