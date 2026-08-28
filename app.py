@@ -47,12 +47,13 @@ if archivo_base is not None:
     xls_base = pd.ExcelFile(archivo_base)
 
     if "Seguimiento_Ventas" in xls_base.sheet_names:
-      df_temp = pd.read_excel(xls_base, sheet_name="Seguimiento_Ventas", header=2)
+      df_temp = pd.read_excel(xls_base, sheet_name="Seguimiento_Ventas", header=1)
       df_temp = df_temp.replace(r'^\s*$', float('nan'), regex=True).dropna(how="all")
       st.session_state["df_ventas"] = df_temp
 
     if "Detalle_Auditoria" in xls_base.sheet_names:
-      df_temp = pd.read_excel(xls_base, sheet_name="Detalle_Auditoria", header=2)
+      # Corregido a header=1 para tomar las cabeceras reales de Detalle_Auditoria
+      df_temp = pd.read_excel(xls_base, sheet_name="Detalle_Auditoria", header=1)
       df_temp = df_temp.replace(r'^\s*$', float('nan'), regex=True).dropna(how="all")
       if "Cliente" in df_temp.columns:
         df_temp = df_temp.dropna(subset=["Cliente"])
