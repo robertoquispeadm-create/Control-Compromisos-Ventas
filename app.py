@@ -5,6 +5,11 @@ import openpyxl
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 import pandas as pd
+import streamlit as st
+
+st.set_page_config(
+    page_title="Control de Compromisos y Producción", layout="wide"
+)
 
 st.set_page_config(
     page_title="Control de Compromisos y Producción", layout="wide"
