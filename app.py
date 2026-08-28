@@ -1,5 +1,6 @@
 from datetime import datetime
 import io
+import os
 import openpyxl
 import pandas as pd
 import streamlit as st
@@ -9,7 +10,7 @@ st.set_page_config(
 )
 
 st.title("📊 Panel de Control: Producción y Seguimiento Comercial")
-st.markdown("Consolidación inteligente con control estricto de formatos.")
+st.markdown("Consolidación inteligente con lectura automática desde GitHub.")
 
 st.sidebar.header("📂 Gestión de Archivos")
 
@@ -18,16 +19,9 @@ archivo_base = st.sidebar.file_uploader(
     "1. Sube tu Excel Consolidado o Modelo Base", type=["xlsx"], key="base"
 )
 
-# 2. Subir la plantilla oficial de vendedor (para validaciones y descargas de formato)
-archivo_modelo_vendedor = st.sidebar.file_uploader(
-    "2. Sube la Plantilla Oficial de Vendedor (Modelo)",
-    type=["xlsx"],
-    key="mod_vendedor",
-)
-
-# 3. Subir los reportes individuales semanales de los vendedores
+# 2. Subir los reportes individuales semanales de los vendedores
 archivos_nuevos = st.sidebar.file_uploader(
-    "3. Sube los reportes individuales semanales de los vendedores",
+    "2. Sube los reportes individuales semanales de los vendedores",
     type=["xlsx"],
     accept_multiple_files=True,
     key="nuevos",
@@ -42,10 +36,8 @@ if "df_ventas" not in st.session_state:
   st.session_state["df_ventas"] = pd.DataFrame()
 if "wb_template" not in st.session_state:
   st.session_state["wb_template"] = None
-if "wb_vendedor_template" not in st.session_state:
-  st.session_state["wb_vendedor_template"] = None
 
-# Leer el archivo consolidado base
+# Leer el archivo consolidado base subido por el usuario
 if archivo_base is not None:
   try:
     archivo_base.seek(0)
@@ -73,25 +65,17 @@ if archivo_base is not None:
   except Exception as e:
     st.sidebar.error(f"⚠️ Error al leer el archivo base: {e}")
 
-# Leer el modelo de vendedor si se sube
-if archivo_modelo_vendedor is not None:
-  try:
-    archivo_modelo_vendedor.seek(0)
-    st.session_state["wb_vendedor_template"] = openpyxl.load_workbook(
-        archivo_modelo_vendedor
-    )
-    st.sidebar.success("✅ ¡Modelo de reporte de vendedor memorizado!")
-  except Exception as e:
-    st.sidebar.error(f"⚠️ Error al leer modelo de vendedor: {e}")
-
-# --- BOTÓN GLOBAL PARA DESCARGAR EL FORMATO DE VENDEDOR ---
-if st.session_state["wb_vendedor_template"] is not None:
-  output_vendedor = io.BytesIO()
-  st.session_state["wb_vendedor_template"].save(output_vendedor)
+# --- BOTÓN AUTOMÁTICO DESDE GITHUB: DESCARGAR FORMATO DE VENDEDOR ---
+nombre_archivo_modelo_github = (
+    "Modelo - Control Compromisos para Ventas (FECHA).xlsx"
+)
+if os.path.exists(nombre_archivo_modelo_github):
+  with open(nombre_archivo_modelo_github, "rb") as f:
+    bytes_modelo = f.read()
   st.sidebar.download_button(
       label="📥 Descargar Formato Oficial de Vendedor",
-      data=output_vendedor.getvalue(),
-      file_name="Modelo_Control_Compromisos_Vendedor.xlsx",
+      data=bytes_modelo,
+      file_name="Formato_Oficial_Vendedor.xlsx",
       mime=(
           "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
       ),
