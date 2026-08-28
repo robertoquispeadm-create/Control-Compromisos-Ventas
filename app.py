@@ -11,12 +11,12 @@ st.set_page_config(
     page_title="Control de Compromisos y Producción", layout="wide"
 )
 
-st.title("📊 Panel de Control: Producción y Seguimiento Comercial")
+st.title("📊 Panel de Control: Seguimiento Comercial")
 st.markdown("Consolidación inteligente con formato y alineación automática.")
 
 st.sidebar.header("📂 Gestión de Archivos")
 
-# 1. Subir el archivo consolidado base / modelo general (3 pestañas)
+# 1. Subir el archivo consolidado base / modelo general
 archivo_base = st.sidebar.file_uploader(
     "1. Sube tu Excel Consolidado o Modelo Base", type=["xlsx"], key="base"
 )
@@ -32,8 +32,6 @@ archivos_nuevos = st.sidebar.file_uploader(
 # Mantener estado en session_state
 if "df_auditoria" not in st.session_state:
   st.session_state["df_auditoria"] = pd.DataFrame()
-if "df_plan" not in st.session_state:
-  st.session_state["df_plan"] = pd.DataFrame()
 if "df_ventas" not in st.session_state:
   st.session_state["df_ventas"] = pd.DataFrame()
 if "wb_template" not in st.session_state:
@@ -47,11 +45,6 @@ if archivo_base is not None:
 
     archivo_base.seek(0)
     xls_base = pd.ExcelFile(archivo_base)
-
-    if "Planificacion_Produccion" in xls_base.sheet_names:
-      df_temp = pd.read_excel(xls_base, sheet_name="Planificacion_Produccion", header=2)
-      df_temp = df_temp.replace(r'^\s*$', float('nan'), regex=True).dropna(how="all")
-      st.session_state["df_plan"] = df_temp
 
     if "Seguimiento_Ventas" in xls_base.sheet_names:
       df_temp = pd.read_excel(xls_base, sheet_name="Seguimiento_Ventas", header=2)
@@ -142,13 +135,12 @@ if archivos_nuevos:
 
 # --- SECCIÓN DE DESCARGA DEL CONSOLIDADO FINAL SIN ESPACIOS VACÍOS ---
 if (
-    not st.session_state["df_plan"].empty
-    or not st.session_state["df_ventas"].empty
+    not st.session_state["df_ventas"].empty
     or not st.session_state["df_auditoria"].empty
 ):
   st.sidebar.markdown("---")
   fecha_actual = datetime.now().strftime("%d-%m-%y")
-  nombre_archivo = f"Planificacion_Produccion_y_Ventas_Final_{fecha_actual}.xlsx"
+  nombre_archivo = f"Control_Compromisos_Ventas_Final_{fecha_actual}.xlsx"
 
   output = io.BytesIO()
   if st.session_state["wb_template"] is not None:
@@ -161,7 +153,6 @@ if (
       if ws.max_row >= 4:
         ws.delete_rows(4, ws.max_row - 3)
       
-      # Limpieza final de seguridad sobre el dataframe consolidado antes de volcarlo al excel
       df_final = st.session_state["df_auditoria"].replace(r'^\s*$', float('nan'), regex=True)
       df_final = df_final.dropna(how="all")
       if "Cliente" in df_final.columns:
@@ -242,21 +233,47 @@ if (
       ),
   )
 
-# --- VISUALIZACIÓN EN PESTAÑAS ---
+# --- VISUALIZACIÓN EN PESTAÑAS (SIN PLANIFICACIÓN DE PRODUCCIÓN) ---
 tab1, tab2, tab3 = st.tabs(
     [
-        "📈 Planificación de Producción",
+        "📦 Resumen por Mes y Unidad",
         "💰 Seguimiento Ventas",
         "📋 Detalle de Auditoría",
     ]
 )
 
 with tab1:
-  st.subheader("Planificación y Requerimiento de Producción")
-  if not st.session_state["df_plan"].empty:
-    st.dataframe(st.session_state["df_plan"], use_container_width=True)
+  st.subheader("Resumen Proyectado: Cantidades y Valores por Mes Previsto y Unidad")
+  if not st.session_state["df_auditoria"].empty:
+    df_aud = st.session_state["df_auditoria"].copy()
+    
+    # Asegurar tipos numéricos para sumar correctamente
+    df_aud["Cantidad Bruta"] = pd.to_numeric(df_aud["Cantidad Bruta"], errors="coerce").fillna(0)
+    df_aud["Importe Bruto (S/)"] = pd.to_numeric(df_aud["Importe Bruto (S/)"], errors="coerce").fillna(0)
+    
+    # Agrupación por Mes Previsto y Unidad
+    if "Mes Previsto" in df_aud.columns and "Unidad" in df_aud.columns:
+      df_resumen = df_aud.groupby(["Mes Previsto", "Unidad"], dropna=False).agg(
+          Total_Cantidad=("Cantidad Bruta", "sum"),
+          Total_Valor_IGV=("Importe Bruto (S/)", "sum"),
+          Total_Cotizaciones=("N° Cotización", "count")
+      ).reset_index()
+      
+      st.dataframe(df_resumen, use_container_width=True)
+      
+      # Métrica rápida del total general de cantidad
+      total_general_cant = df_resumen["Total_Cantidad"].sum()
+      total_general_val = df_resumen["Total_Valor_IGV"].sum()
+      
+      col1, col2 = st.columns(2)
+      with col1:
+        st.metric(label="📦 Cantidad Total Esperada", value=f"{total_general_cant:,.2f}")
+      with col2:
+        st.metric(label="💰 Valor Total con IGV (S/)", value=f"S/ {total_general_val:,.2f}")
+    else:
+      st.warning("No se encontraron las columnas 'Mes Previsto' o 'Unidad' en los reportes.")
   else:
-    st.info("Sube tu archivo consolidado base.")
+    st.info("Sube tus reportes individuales o archivo base para visualizar el resumen.")
 
 with tab2:
   st.subheader("Seguimiento de Rendimiento Comercial")
