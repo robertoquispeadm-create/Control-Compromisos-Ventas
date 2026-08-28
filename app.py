@@ -120,6 +120,17 @@ if archivos_nuevos:
       df_vendedor = df_vendedor.loc[
           :, ~df_vendedor.columns.str.contains("^Unnamed")
       ]
+      
+      # --- TRADUCCIÓN DE COLUMNAS PARA EVITAR DESCUADRES AL UNIR ---
+      df_vendedor = df_vendedor.rename(columns={
+          "Nombre": "Cliente",
+          "Numero": "N° Cotización",
+          "Cantid": "Cantidad Bruta",
+          "Valor + IGV": "Importe Bruto (S/)",
+          "Chance Venta": "Chance de Venta",
+          "Previsto": "Mes Previsto"
+      })
+      
       df_vendedor["Cierre_Semanal"] = file.name
 
       if not st.session_state["df_auditoria"].empty:
@@ -154,25 +165,25 @@ if (
       if ws.max_row >= 4:
         ws.delete_rows(4, ws.max_row - 3)
       
-      # --- INYECCIÓN MAPEADA EXACTA COLUMNA POR COLUMNA ---
-      registros = st.session_state["df_auditoria"].to_dict("records")
+      # Llenar espacios vacíos para que no se exporte como 'nan'
+      registros = st.session_state["df_auditoria"].fillna("").to_dict("records")
       
       for r_idx, row in enumerate(registros, start=4):
-        # Mapeo directo para evitar el descuadre
-        ws.cell(row=r_idx, column=1, value=row.get("Nombre", ""))
+        # Mapeo usando los nombres estandarizados
+        ws.cell(row=r_idx, column=1, value=row.get("Cliente", ""))
         ws.cell(row=r_idx, column=2, value=row.get("No. Contacto", ""))
         ws.cell(row=r_idx, column=3, value=row.get("1o. Contacto", ""))
         ws.cell(row=r_idx, column=4, value=row.get("Ultimo Contacto", ""))
-        ws.cell(row=r_idx, column=5, value=row.get("Numero", ""))
+        ws.cell(row=r_idx, column=5, value=row.get("N° Cotización", ""))
         ws.cell(row=r_idx, column=6, value=row.get("Unidad", ""))
         
-        cant = row.get("Cantid", 0)
-        importe = row.get("Valor + IGV", 0)
-        chance = row.get("Chance Venta", 0)
+        cant = row.get("Cantidad Bruta", 0)
+        importe = row.get("Importe Bruto (S/)", 0)
+        chance = row.get("Chance de Venta", 0)
         
-        ws.cell(row=r_idx, column=7, value=cant)
-        ws.cell(row=r_idx, column=8, value=importe)
-        ws.cell(row=r_idx, column=9, value=chance)
+        ws.cell(row=r_idx, column=7, value=cant if cant != "" else None)
+        ws.cell(row=r_idx, column=8, value=importe if importe != "" else None)
+        ws.cell(row=r_idx, column=9, value=chance if chance != "" else None)
         
         # Cálculo automático de los ponderados (Columna 10 y 11)
         try: val_pond = float(importe) * float(chance)
@@ -184,7 +195,7 @@ if (
         ws.cell(row=r_idx, column=11, value=cant_pond)
         
         # Acomodar fecha y reporte en las últimas columnas
-        ws.cell(row=r_idx, column=12, value=row.get("Previsto", ""))
+        ws.cell(row=r_idx, column=12, value=row.get("Mes Previsto", ""))
         ws.cell(row=r_idx, column=13, value=row.get("Cierre_Semanal", ""))
 
       # --- APLICAR CORRECCIÓN DE DISEÑO Y ALINEACIÓN EN MEMORIA ---
