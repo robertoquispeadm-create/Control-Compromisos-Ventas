@@ -13,11 +13,11 @@ st.set_page_config(
 )
 
 st.title("📊 Panel de Control: Seguimiento Comercial")
-st.markdown("Consolidación inteligente con alineación perfecta de columnas.")
+st.markdown("Consolidación inteligente con formato optimizado (13 columnas).")
 
 st.sidebar.header("📂 Gestión de Archivos")
 
-# 1. Subir el archivo consolidado base / modelo general
+# 1. Subir el archivo consolidado base
 archivo_base = st.sidebar.file_uploader(
     "1. Sube tu Excel Consolidado o Modelo Base", type=["xlsx"], key="base"
 )
@@ -78,7 +78,7 @@ if os.path.exists(nombre_archivo_modelo_github):
 
 st.sidebar.markdown("---")
 
-# --- PROCESAMIENTO ESTRICTO Y ALINEADO DE REPORTES DE VENDEDORES ---
+# --- PROCESAMIENTO Y ALINEACIÓN DE REPORTES (13 COLUMNAS) ---
 if archivos_nuevos:
   lista_nuevos_dfs = []
   for file in archivos_nuevos:
@@ -87,18 +87,13 @@ if archivos_nuevos:
       df_v = pd.read_excel(file, sheet_name=0, header=0)
       df_v.columns = [str(c).strip() for c in df_v.columns]
 
-      # Validar columnas esenciales
       if "Cliente" not in df_v.columns or "N° Cotización" not in df_v.columns:
         st.sidebar.error(f"❌ **'{file.name}'**: Faltan columnas obligatorias (Cliente o N° Cotización).")
         continue
 
       df_v = df_v.dropna(subset=["Cliente"])
 
-      # Extraer fecha del nombre del archivo para Fecha Reporte y Viernes
-      match_fecha = re.search(r'(\d{1,2}[-/]\d{1,2}[-/]\d{2,4})', file.name)
-      fecha_str = match_fecha.group(1) if match_fecha else datetime.now().strftime("%Y-%m-%d")
-
-      # Construir un DataFrame limpio con EXACTAS 15 columnas de la Auditoría Base
+      # Construcción exacta de las 13 columnas base
       df_normalizado = pd.DataFrame()
       df_normalizado["Cliente"] = df_v.get("Cliente", "")
       df_normalizado["No. Contacto"] = df_v.get("No. Contacto", "")
@@ -110,13 +105,11 @@ if archivos_nuevos:
       df_normalizado["Valor + IGV"] = pd.to_numeric(df_v.get("Valor + IGV", 0), errors="coerce").fillna(0)
       df_normalizado["Chance de Venta"] = pd.to_numeric(df_v.get("Chance de Venta", 0), errors="coerce").fillna(0)
       
-      # Calcular ponderados automáticamente
+      # Cálculo automático de ponderados
       df_normalizado["Valor Ponderado (S/)"] = df_normalizado["Valor + IGV"] * df_normalizado["Chance de Venta"]
       df_normalizado["Cantidad Ponderada Prod."] = df_normalizado["Cantidad"] * df_normalizado["Chance de Venta"]
       
       df_normalizado["Mes Previsto"] = df_v.get("Mes Previsto", "")
-      df_normalizado["Fecha Reporte"] = fecha_str
-      df_normalizado["Viernes de la Semana"] = fecha_str
       
       resp_col = "CODIGO-RESPONSABLE" if "CODIGO-RESPONSABLE" in df_v.columns else "RESPONSABLE"
       df_normalizado["RESPONSABLE"] = df_v.get(resp_col, "")
@@ -129,7 +122,6 @@ if archivos_nuevos:
   if lista_nuevos_dfs:
     df_agregado = pd.concat(lista_nuevos_dfs, ignore_index=True)
     if not st.session_state["df_auditoria"].empty:
-      # Unir con la auditoría base existente asegurando las mismas columnas
       st.session_state["df_auditoria"] = pd.concat(
           [st.session_state["df_auditoria"], df_agregado], ignore_index=True
       ).drop_duplicates(subset=["N° Cotización", "Cliente"], keep="last")
@@ -159,6 +151,7 @@ if (
       df_final = st.session_state["df_auditoria"].dropna(subset=["Cliente"])
       registros = df_final.to_dict("records")
       
+      # Escritura exacta fila por fila (13 columnas)
       for r_idx, row in enumerate(registros, start=2):
         ws.cell(row=r_idx, column=1, value=row.get("Cliente", ""))
         ws.cell(row=r_idx, column=2, value=row.get("No. Contacto", ""))
@@ -184,9 +177,7 @@ if (
         ws.cell(row=r_idx, column=11, value=cant_pond)
         
         ws.cell(row=r_idx, column=12, value=row.get("Mes Previsto", ""))
-        ws.cell(row=r_idx, column=13, value=row.get("Fecha Reporte", ""))
-        ws.cell(row=r_idx, column=14, value=row.get("Viernes de la Semana", ""))
-        ws.cell(row=r_idx, column=15, value=row.get("RESPONSABLE", ""))
+        ws.cell(row=r_idx, column=13, value=row.get("RESPONSABLE", ""))
 
       data_font = Font(name="Calibri", size=10)
       border_style = Border(
@@ -249,7 +240,7 @@ with tab1:
     df_aud["Importe_Num"] = pd.to_numeric(df_aud["Valor + IGV"], errors="coerce").fillna(0)
     df_aud["Chance Num"] = pd.to_numeric(df_aud["Chance de Venta"], errors="coerce").fillna(0)
     
-    # --- FILTRAR CHANCE DE VENTA > 0% ---
+    # Filtrar solo con Chance de Venta > 0%
     df_aud = df_aud[df_aud["Chance Num"] > 0]
     
     if not df_aud.empty and "Mes Previsto" in df_aud.columns and "Unidad" in df_aud.columns:
