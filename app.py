@@ -13,7 +13,7 @@ st.set_page_config(
 )
 
 st.title("📊 Panel de Control: Seguimiento Comercial")
-st.markdown("Consolidación inteligente con formato optimizado (13 columnas).")
+st.markdown("Consolidación inteligente con validación estricta de columnas.")
 
 st.sidebar.header("📂 Gestión de Archivos")
 
@@ -78,44 +78,62 @@ if os.path.exists(nombre_archivo_modelo_github):
 
 st.sidebar.markdown("---")
 
-# --- PROCESAMIENTO Y ALINEACIÓN DE REPORTES (13 COLUMNAS) ---
+# --- VALIDACIÓN ESTRICTA Y PROCESAMIENTO DE REPORTES ---
 if archivos_nuevos:
   lista_nuevos_dfs = []
+  
+  # Columnas estrictas que DEBE tener el reporte del vendedor (permitiendo CODIGO-RESPONSABLE o RESPONSABLE)
+  columnas_obligatorias = [
+      "Cliente", "No. Contacto", "1o. Contacto", "Ultimo Contacto", 
+      "N° Cotización", "Unidad", "Cantidad", "Valor + IGV", 
+      "Chance de Venta", "Mes Previsto"
+  ]
+
   for file in archivos_nuevos:
     try:
       file.seek(0)
       df_v = pd.read_excel(file, sheet_name=0, header=0)
       df_v.columns = [str(c).strip() for c in df_v.columns]
 
-      if "Cliente" not in df_v.columns or "N° Cotización" not in df_v.columns:
-        st.sidebar.error(f"❌ **'{file.name}'**: Faltan columnas obligatorias (Cliente o N° Cotización).")
-        continue
+      # 1. Validar columnas faltantes obligatorias básicas
+      faltantes = [col for col in columnas_obligatorias if col not in df_v.columns]
+      
+      # 2. Validar que tenga alguna forma de responsable
+      tiene_responsable = "CODIGO-RESPONSABLE" in df_v.columns or "RESPONSABLE" in df_v.columns
+      if not tiene_responsable:
+        faltantes.append("CODIGO-RESPONSABLE (o RESPONSABLE)")
+
+      if faltantes:
+        st.sidebar.error(
+            f"❌ **Rechazado ('{file.name}')**: Le falta(n) la(s) columna(s) obligatoria(s): **{', '.join(faltantes)}**."
+        )
+        continue  # Bloquea el archivo si no cumple la estructura
 
       df_v = df_v.dropna(subset=["Cliente"])
 
       # Construcción exacta de las 13 columnas base
       df_normalizado = pd.DataFrame()
-      df_normalizado["Cliente"] = df_v.get("Cliente", "")
-      df_normalizado["No. Contacto"] = df_v.get("No. Contacto", "")
-      df_normalizado["1o. Contacto"] = df_v.get("1o. Contacto", "")
-      df_normalizado["Ultimo Contacto"] = df_v.get("Ultimo Contacto", "")
-      df_normalizado["N° Cotización"] = df_v.get("N° Cotización", "")
-      df_normalizado["Unidad"] = df_v.get("Unidad", "")
-      df_normalizado["Cantidad"] = pd.to_numeric(df_v.get("Cantidad", 0), errors="coerce").fillna(0)
-      df_normalizado["Valor + IGV"] = pd.to_numeric(df_v.get("Valor + IGV", 0), errors="coerce").fillna(0)
-      df_normalizado["Chance de Venta"] = pd.to_numeric(df_v.get("Chance de Venta", 0), errors="coerce").fillna(0)
+      df_normalizado["Cliente"] = df_v["Cliente"]
+      df_normalizado["No. Contacto"] = df_v["No. Contacto"]
+      df_normalizado["1o. Contacto"] = df_v["1o. Contacto"]
+      df_normalizado["Ultimo Contacto"] = df_v["Ultimo Contacto"]
+      df_normalizado["N° Cotización"] = df_v["N° Cotización"]
+      df_normalizado["Unidad"] = df_v["Unidad"]
+      df_normalizado["Cantidad"] = pd.to_numeric(df_v["Cantidad"], errors="coerce").fillna(0)
+      df_normalizado["Valor + IGV"] = pd.to_numeric(df_v["Valor + IGV"], errors="coerce").fillna(0)
+      df_normalizado["Chance de Venta"] = pd.to_numeric(df_v["Chance de Venta"], errors="coerce").fillna(0)
       
       # Cálculo automático de ponderados
       df_normalizado["Valor Ponderado (S/)"] = df_normalizado["Valor + IGV"] * df_normalizado["Chance de Venta"]
       df_normalizado["Cantidad Ponderada Prod."] = df_normalizado["Cantidad"] * df_normalizado["Chance de Venta"]
       
-      df_normalizado["Mes Previsto"] = df_v.get("Mes Previsto", "")
+      df_normalizado["Mes Previsto"] = df_v["Mes Previsto"]
       
       resp_col = "CODIGO-RESPONSABLE" if "CODIGO-RESPONSABLE" in df_v.columns else "RESPONSABLE"
-      df_normalizado["RESPONSABLE"] = df_v.get(resp_col, "")
+      df_normalizado["RESPONSABLE"] = df_v[resp_col]
 
       lista_nuevos_dfs.append(df_normalizado)
-      st.sidebar.success(f"✅ ¡Vendedor procesado y alineado: {file.name}!")
+      st.sidebar.success(f"✅ ¡Vendedor validado y procesado: {file.name}!")
     except Exception as e:
       st.sidebar.error(f"❌ Error al procesar '{file.name}': {e}")
 
@@ -240,7 +258,6 @@ with tab1:
     df_aud["Importe_Num"] = pd.to_numeric(df_aud["Valor + IGV"], errors="coerce").fillna(0)
     df_aud["Chance Num"] = pd.to_numeric(df_aud["Chance de Venta"], errors="coerce").fillna(0)
     
-    # Filtrar solo con Chance de Venta > 0%
     df_aud = df_aud[df_aud["Chance Num"] > 0]
     
     if not df_aud.empty and "Mes Previsto" in df_aud.columns and "Unidad" in df_aud.columns:
