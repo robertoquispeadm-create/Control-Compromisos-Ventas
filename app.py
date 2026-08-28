@@ -26,7 +26,7 @@ if uploaded_file is not None:
         uploaded_file, sheet_name="Seguimiento_Ventas", skiprows=2
     )
     df_auditoria = pd.read_excel(
-        uploaded_file, sheet_name="Detalle_Auditoria", skiprows=2https://github.com/robertoquispeadm-create/Control-Compromisos-Ventas/blob/main/app.py
+        uploaded_file, sheet_name="Detalle_Auditoria", skiprows=2
     )
 
     # Limpiar filas completamente vacías
