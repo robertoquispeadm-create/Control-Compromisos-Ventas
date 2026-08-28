@@ -32,12 +32,10 @@ archivos_nuevos = st.sidebar.file_uploader(
 
 if "df_auditoria" not in st.session_state:
   st.session_state["df_auditoria"] = pd.DataFrame()
-if "df_ventas" not in st.session_state:
-  st.session_state["df_ventas"] = pd.DataFrame()
 if "wb_template" not in st.session_state:
   st.session_state["wb_template"] = None
 
-# Cargar plantilla base y lectura flexible de Seguimiento_Ventas
+# Cargar plantilla base
 if archivo_base is not None:
   try:
     archivo_base.seek(0)
@@ -45,21 +43,6 @@ if archivo_base is not None:
 
     archivo_base.seek(0)
     xls_base = pd.ExcelFile(archivo_base)
-
-    # Buscar la pestaña de ventas de forma flexible (por nombre exacto o que contenga 'Ventas' o 'Seguimiento')
-    hoja_ventas_encontrada = None
-    for name in xls_base.sheet_names:
-      n_lower = name.lower()
-      if "venta" in n_lower or "seguimiento" in n_lower:
-        hoja_ventas_encontrada = name
-        break
-
-    if hoja_ventas_encontrada:
-      df_temp = pd.read_excel(xls_base, sheet_name=hoja_ventas_encontrada, header=0)
-      df_temp.columns = [str(c).strip() for c in df_temp.columns]
-      st.session_state["df_ventas"] = df_temp.dropna(how="all")
-    else:
-      st.sidebar.warning("⚠️ No se encontró una pestaña de 'Seguimiento_Ventas' en el archivo base.")
 
     if "Detalle_Auditoria" in xls_base.sheet_names:
       df_temp = pd.read_excel(xls_base, sheet_name="Detalle_Auditoria", header=0)
@@ -154,7 +137,6 @@ if archivos_nuevos:
     else:
       df_combinado = df_agregado
 
-    # Deduplicar solo si Cotización, Último Contacto y Chance son idénticos
     df_combinado = df_combinado.drop_duplicates(
         subset=["N° Cotización", "Ultimo Contacto", "Chance de Venta"], 
         keep="last"
@@ -163,10 +145,7 @@ if archivos_nuevos:
     st.session_state["df_auditoria"] = df_combinado
 
 # --- GENERACIÓN DEL EXCEL FINAL ---
-if (
-    not st.session_state["df_ventas"].empty
-    or not st.session_state["df_auditoria"].empty
-):
+if not st.session_state["df_auditoria"].empty:
   st.sidebar.markdown("---")
   fecha_actual = datetime.now().strftime("%d-%m-%y")
   nombre_archivo = f"Control_Compromisos_Ventas_Final_{fecha_actual}.xlsx"
@@ -174,10 +153,7 @@ if (
   output = io.BytesIO()
   if st.session_state["wb_template"] is not None:
     wb = st.session_state["wb_template"]
-    if (
-        "Detalle_Auditoria" in wb.sheetnames
-        and not st.session_state["df_auditoria"].empty
-    ):
+    if "Detalle_Auditoria" in wb.sheetnames:
       ws = wb["Detalle_Auditoria"]
       if ws.max_row >= 2:
         ws.delete_rows(2, ws.max_row - 1)
@@ -234,22 +210,13 @@ if (
           cell.border = border_style
           cell.alignment = Alignment(horizontal="left", vertical="center")
 
-      for col in ws.columns:
-        max_length = 0
-        column_letter = get_column_letter(col[0].column)
-        for cell in col:
-          if cell.value is not None:
-            max_length = max(max_length, len(str(cell.value)))
-        ws.column_dimensions[column_letter].width = max(max_length + 4, 14)
-
     wb.save(output)
     excel_data = output.getvalue()
   else:
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
-      if not st.session_state["df_auditoria"].empty:
-        st.session_state["df_auditoria"].to_excel(
-            writer, sheet_name="Detalle_Auditoria", index=False
-        )
+      st.session_state["df_auditoria"].to_excel(
+          writer, sheet_name="Detalle_Auditoria", index=False
+      )
     excel_data = output.getvalue()
 
   st.sidebar.download_button(
@@ -302,7 +269,8 @@ with tab1:
       meses_seleccionados = st.multiselect(
           "Selecciona el Mes Previsto (YYYY-MM):",
           options=meses_disponibles,
-          default=defaults if defaults else meses_disponibles
+          default=defaults if defaults else meses_disponibles,
+          key="filtro_mes_tab1"
       )
       
       if meses_seleccionados:
@@ -337,19 +305,49 @@ with tab1:
     st.info("Sube tus archivos para visualizar el resumen.")
 
 with tab2:
-  st.subheader("Seguimiento de Rendimiento Comercial")
-  if not st.session_state["df_ventas"].empty:
-    df_ventas_disp = st.session_state["df_ventas"].copy()
-    # Aplicar formato amigable si existen columnas numéricas en ventas
-    st.dataframe(df_ventas_disp.style.set_properties(**{'text-align': 'left'}), use_container_width=True)
+  st.subheader("Seguimiento de Ventas (Calculado Automáticamente por Mes y Unidad)")
+  if not st.session_state["df_auditoria"].empty:
+    df_ventas_calc = st.session_state["df_auditoria"].copy()
+    
+    df_ventas_calc["Importe_Num"] = pd.to_numeric(df_ventas_calc["Valor + IGV"], errors="coerce").fillna(0)
+    df_ventas_calc["Chance Num"] = pd.to_numeric(df_ventas_calc["Chance de Venta"], errors="coerce").fillna(0)
+    
+    if "Mes Previsto" in df_ventas_calc.columns and "Unidad" in df_ventas_calc.columns:
+      def formatear_mes_yyyy_mm(val):
+        if pd.isna(val):
+          return "Sin Especificar"
+        try:
+          dt = pd.to_datetime(val)
+          return dt.strftime("%Y-%m")
+        except:
+          s = str(val).strip()
+          return s[:7] if len(s) >= 7 else s
+
+      df_ventas_calc["Mes Formateado"] = df_ventas_calc["Mes Previsto"].apply(formatear_mes_yyyy_mm)
+      
+      # Agregación para Seguimiento de Ventas
+      df_seg = df_ventas_calc.groupby(["Mes Formateado", "Unidad"], dropna=False).agg(
+          N_Cotizaciones=("N° Cotización", "count"),
+          Pipeline_Bruto=("Importe_Num", "sum"),
+          Pipeline_Realista_Ponderado=("Valor Ponderado (S/)", "sum")
+      ).reset_index()
+      
+      # Aplicar formatos solicitados: Soles (2 decimales), Enteros para cantidad
+      df_seg_display = df_seg.copy()
+      df_seg_display["N_Cotizaciones"] = df_seg_display["N_Cotizaciones"].apply(lambda x: f"{int(x):,}")
+      df_seg_display["Pipeline_Bruto"] = df_seg_display["Pipeline_Bruto"].apply(lambda x: f"S/ {x:,.2f}")
+      df_seg_display["Pipeline_Realista_Ponderado"] = df_seg_display["Pipeline_Realista_Ponderado"].apply(lambda x: f"S/ {x:,.2f}")
+      
+      st.dataframe(df_seg_display.style.set_properties(**{'text-align': 'left'}), use_container_width=True)
+    else:
+      st.warning("Faltan columnas requeridas ('Mes Previsto' o 'Unidad') para calcular el seguimiento de ventas.")
   else:
-    st.info("Sube tu archivo consolidado base con la pestaña de Seguimiento de Ventas.")
+    st.info("Sube tus archivos para generar el Seguimiento de Ventas.")
 
 with tab3:
   st.subheader("Detalle General y Auditoría de Cotizaciones")
   if not st.session_state["df_auditoria"].empty:
     df_aud_disp = st.session_state["df_auditoria"].copy()
-    # Formatear visualización en pantalla de auditoría
     if "Valor + IGV" in df_aud_disp.columns:
       df_aud_disp["Valor + IGV"] = df_aud_disp["Valor + IGV"].apply(lambda x: f"S/ {float(x):,.2f}" if pd.notna(x) else "")
     if "Chance de Venta" in df_aud_disp.columns:
