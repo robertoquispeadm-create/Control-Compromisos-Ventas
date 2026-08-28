@@ -49,19 +49,21 @@ if archivo_base is not None:
     xls_base = pd.ExcelFile(archivo_base)
 
     if "Planificacion_Produccion" in xls_base.sheet_names:
-      st.session_state["df_plan"] = pd.read_excel(
-          xls_base, sheet_name="Planificacion_Produccion", header=2
-      ).dropna(how="all")
+      df_temp = pd.read_excel(xls_base, sheet_name="Planificacion_Produccion", header=2)
+      df_temp = df_temp.replace(r'^\s*$', float('nan'), regex=True).dropna(how="all")
+      st.session_state["df_plan"] = df_temp
 
     if "Seguimiento_Ventas" in xls_base.sheet_names:
-      st.session_state["df_ventas"] = pd.read_excel(
-          xls_base, sheet_name="Seguimiento_Ventas", header=2
-      ).dropna(how="all")
+      df_temp = pd.read_excel(xls_base, sheet_name="Seguimiento_Ventas", header=2)
+      df_temp = df_temp.replace(r'^\s*$', float('nan'), regex=True).dropna(how="all")
+      st.session_state["df_ventas"] = df_temp
 
     if "Detalle_Auditoria" in xls_base.sheet_names:
-      st.session_state["df_auditoria"] = pd.read_excel(
-          xls_base, sheet_name="Detalle_Auditoria", header=2
-      ).dropna(how="all")
+      df_temp = pd.read_excel(xls_base, sheet_name="Detalle_Auditoria", header=2)
+      df_temp = df_temp.replace(r'^\s*$', float('nan'), regex=True).dropna(how="all")
+      if "Cliente" in df_temp.columns:
+        df_temp = df_temp.dropna(subset=["Cliente"])
+      st.session_state["df_auditoria"] = df_temp
 
     st.sidebar.success("✅ ¡Plantilla base cargada con éxito!")
   except Exception as e:
@@ -85,20 +87,15 @@ if os.path.exists(nombre_archivo_modelo_github):
 
 st.sidebar.markdown("---")
 
-# --- VALIDACIÓN ESTRICTA DE REPORTES INDIVIDUALES (DESDE A1) ---
+# --- VALIDACIÓN Y LIMPIEZA ESTRICTA DE REPORTES INDIVIDUALES ---
 if archivos_nuevos:
   for file in archivos_nuevos:
     try:
       file.seek(0)
-      
-      # Leemos directamente desde la primera fila (header=0 que equivale a A1)
       df_vendedor = pd.read_excel(file, sheet_name=0, header=0)
-      
-      # Limpiamos espacios vacíos accidentales en los nombres de las columnas (ej: "Cliente " -> "Cliente")
       df_vendedor.columns = [str(c).strip() for c in df_vendedor.columns]
 
       faltantes = []
-      # Columnas requeridas clave basándonos en tu nueva estructura en A1
       columnas_requeridas = ["Cliente", "N° Cotización", "CODIGO-RESPONSABLE"]
 
       for req in columnas_requeridas:
@@ -115,14 +112,16 @@ if archivos_nuevos:
         )
         continue
 
+      # --- LIMPIEZA PROFUNDA DE FILAS VACÍAS O ESPACIOS EN BLANCO ---
+      df_vendedor = df_vendedor.replace(r'^\s*$', float('nan'), regex=True)
       df_vendedor = df_vendedor.dropna(how="all")
+      if "Cliente" in df_vendedor.columns:
+        df_vendedor = df_vendedor.dropna(subset=["Cliente"])
+
       df_vendedor = df_vendedor.loc[
           :, ~df_vendedor.columns.str.contains("^Unnamed")
       ]
       
-      # --- TRADUCCIÓN DE COLUMNAS PARA EVITAR DESCUADRES AL UNIR ---
-      # Renombramos solo las que difieren de la plantilla base.
-      # "Cliente", "N° Cotización", etc. ya tienen el nombre correcto en A1.
       df_vendedor = df_vendedor.rename(columns={
           "Cantidad": "Cantidad Bruta",
           "Valor + IGV": "Importe Bruto (S/)"
@@ -141,7 +140,7 @@ if archivos_nuevos:
     except Exception as e:
       st.sidebar.error(f"❌ Error al procesar '{file.name}': {e}")
 
-# --- SECCIÓN DE DESCARGA DEL CONSOLIDADO FINAL CON FORMATO PERFECTO ---
+# --- SECCIÓN DE DESCARGA DEL CONSOLIDADO FINAL SIN ESPACIOS VACÍOS ---
 if (
     not st.session_state["df_plan"].empty
     or not st.session_state["df_ventas"].empty
@@ -162,11 +161,15 @@ if (
       if ws.max_row >= 4:
         ws.delete_rows(4, ws.max_row - 3)
       
-      # Llenar espacios vacíos para que no se exporte como 'nan'
-      registros = st.session_state["df_auditoria"].fillna("").to_dict("records")
+      # Limpieza final de seguridad sobre el dataframe consolidado antes de volcarlo al excel
+      df_final = st.session_state["df_auditoria"].replace(r'^\s*$', float('nan'), regex=True)
+      df_final = df_final.dropna(how="all")
+      if "Cliente" in df_final.columns:
+        df_final = df_final.dropna(subset=["Cliente"])
+      
+      registros = df_final.fillna("").to_dict("records")
       
       for r_idx, row in enumerate(registros, start=4):
-        # Mapeo usando los nombres de columnas ya estandarizados
         ws.cell(row=r_idx, column=1, value=row.get("Cliente", ""))
         ws.cell(row=r_idx, column=2, value=row.get("No. Contacto", ""))
         ws.cell(row=r_idx, column=3, value=row.get("1o. Contacto", ""))
@@ -182,7 +185,6 @@ if (
         ws.cell(row=r_idx, column=8, value=importe if importe != "" else None)
         ws.cell(row=r_idx, column=9, value=chance if chance != "" else None)
         
-        # Cálculo automático de los ponderados (Columna 10 y 11)
         try: val_pond = float(importe) * float(chance)
         except: val_pond = 0
         try: cant_pond = float(cant) * float(chance)
@@ -191,11 +193,9 @@ if (
         ws.cell(row=r_idx, column=10, value=val_pond)
         ws.cell(row=r_idx, column=11, value=cant_pond)
         
-        # Acomodar fecha y reporte en las últimas columnas
         ws.cell(row=r_idx, column=12, value=row.get("Mes Previsto", ""))
         ws.cell(row=r_idx, column=13, value=row.get("Cierre_Semanal", ""))
 
-      # --- APLICAR CORRECCIÓN DE DISEÑO Y ALINEACIÓN EN MEMORIA ---
       data_font = Font(name="Calibri", size=10)
       border_style = Border(
           left=Side(style="thin", color="D9D9D9"),
@@ -234,7 +234,7 @@ if (
     excel_data = output.getvalue()
 
   st.sidebar.download_button(
-      label="📥 Descargar Consolidado Final con Formato Original",
+      label="📥 Descargar Consolidado Final sin Filas Vacías",
       data=excel_data,
       file_name=nombre_archivo,
       mime=(
