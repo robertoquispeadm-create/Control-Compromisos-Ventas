@@ -2,7 +2,7 @@ from datetime import datetime
 import io
 import os
 import openpyxl
-from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.styles import Alignment, Border, Font, Side
 from openpyxl.utils import get_column_letter
 import pandas as pd
 import streamlit as st
@@ -85,26 +85,25 @@ if os.path.exists(nombre_archivo_modelo_github):
 
 st.sidebar.markdown("---")
 
-# --- VALIDACIÓN ESTRICTA Y ROBUSTA DE REPORTES INDIVIDUALES ---
+# --- VALIDACIÓN ESTRICTA DE REPORTES INDIVIDUALES (DESDE A1) ---
 if archivos_nuevos:
   for file in archivos_nuevos:
     try:
       file.seek(0)
-      xls = pd.ExcelFile(file)
-
-      df_fila1 = pd.read_excel(xls, sheet_name=0, header=1)
-      df_fila2 = pd.read_excel(xls, sheet_name=0, header=2)
-
-      columnas_totales = [str(c).strip() for c in df_fila1.columns] + [
-          str(c).strip() for c in df_fila2.columns
-      ]
+      
+      # Leemos directamente desde la primera fila (header=0 que equivale a A1)
+      df_vendedor = pd.read_excel(file, sheet_name=0, header=0)
+      
+      # Limpiamos espacios vacíos accidentales en los nombres de las columnas (ej: "Cliente " -> "Cliente")
+      df_vendedor.columns = [str(c).strip() for c in df_vendedor.columns]
 
       faltantes = []
-      columnas_requeridas = ["CODIGO-RESPONSABLE", "Cotizacion", "Nombre"]
+      # Columnas requeridas clave basándonos en tu nueva estructura en A1
+      columnas_requeridas = ["Cliente", "N° Cotización", "CODIGO-RESPONSABLE"]
 
       for req in columnas_requeridas:
         encontrado = any(
-            req.lower() in c.lower() for c in columnas_totales if c
+            req.lower() in str(c).lower() for c in df_vendedor.columns if pd.notna(c)
         )
         if not encontrado:
           faltantes.append(req)
@@ -116,19 +115,17 @@ if archivos_nuevos:
         )
         continue
 
-      df_vendedor = df_fila2.dropna(how="all")
+      df_vendedor = df_vendedor.dropna(how="all")
       df_vendedor = df_vendedor.loc[
           :, ~df_vendedor.columns.str.contains("^Unnamed")
       ]
       
       # --- TRADUCCIÓN DE COLUMNAS PARA EVITAR DESCUADRES AL UNIR ---
+      # Renombramos solo las que difieren de la plantilla base.
+      # "Cliente", "N° Cotización", etc. ya tienen el nombre correcto en A1.
       df_vendedor = df_vendedor.rename(columns={
-          "Nombre": "Cliente",
-          "Numero": "N° Cotización",
-          "Cantid": "Cantidad Bruta",
-          "Valor + IGV": "Importe Bruto (S/)",
-          "Chance Venta": "Chance de Venta",
-          "Previsto": "Mes Previsto"
+          "Cantidad": "Cantidad Bruta",
+          "Valor + IGV": "Importe Bruto (S/)"
       })
       
       df_vendedor["Cierre_Semanal"] = file.name
@@ -169,7 +166,7 @@ if (
       registros = st.session_state["df_auditoria"].fillna("").to_dict("records")
       
       for r_idx, row in enumerate(registros, start=4):
-        # Mapeo usando los nombres estandarizados
+        # Mapeo usando los nombres de columnas ya estandarizados
         ws.cell(row=r_idx, column=1, value=row.get("Cliente", ""))
         ws.cell(row=r_idx, column=2, value=row.get("No. Contacto", ""))
         ws.cell(row=r_idx, column=3, value=row.get("1o. Contacto", ""))
