@@ -254,11 +254,9 @@ with tab1:
 
       df_aud["Mes Formateado"] = df_aud["Mes Previsto"].apply(formatear_mes_yyyy_mm)
       meses_disponibles = sorted([str(m) for m in df_aud["Mes Formateado"].unique()])
-      mes_actual_default = datetime.now().strftime("%Y-%m")
-      defaults = [mes_actual_default] if mes_actual_default in meses_disponibles else meses_disponibles
       
-      # Filtro de Mes Previsto
-      meses_seleccionados = st.multiselect("Filtrar Mes Previsto:", options=meses_disponibles, default=defaults, key="m_tab1")
+      # --- CAMBIO: Filtro de Mes Previsto sin selección por defecto (vacío) ---
+      meses_seleccionados = st.multiselect("Filtrar Mes Previsto:", options=meses_disponibles, default=[], key="m_tab1")
       if meses_seleccionados:
         df_aud = df_aud[df_aud["Mes Formateado"].isin(meses_seleccionados)]
 
@@ -341,7 +339,7 @@ with tab1:
       st.markdown("---")
 
       # ==========================================
-      # SECCIÓN 2: CHANCE DE VENTA = 0%
+      # SECCIÓN 2: CHANCE DE VENTA = 0% (Estructura de 3 tablas)
       # ==========================================
       st.markdown("### ❄️ Resumen Congelado / Perdido (Chance = 0%)")
       
@@ -353,17 +351,53 @@ with tab1:
         ).reset_index()
 
         df_resumen_ceros = df_resumen_ceros[["Mes Formateado", "Unidad", "Total_Cantidad", "Total_Valor_IGV", "Total_Cotizaciones"]]
+        df_resumen_ceros['Unidad_lower'] = df_resumen_ceros['Unidad'].astype(str).str.lower().str.strip()
 
-        df_totales_c = pd.DataFrame([{
-            "Mes Formateado": "TOTALES",
-            "Unidad": "",
-            "Total_Cantidad": df_resumen_ceros["Total_Cantidad"].sum(),
-            "Total_Valor_IGV": df_resumen_ceros["Total_Valor_IGV"].sum(),
-            "Total_Cotizaciones": df_resumen_ceros["Total_Cotizaciones"].sum()
-        }])
-        df_resumen_ceros = pd.concat([df_resumen_ceros, df_totales_c], ignore_index=True)
+        # 1. TABLA BOLSAS (0%)
+        df_bolsas_c = df_resumen_ceros[df_resumen_ceros['Unidad_lower'] == 'bolsas'].drop(columns=['Unidad_lower']).copy()
+        if not df_bolsas_c.empty:
+          df_totales_bc = pd.DataFrame([{
+              "Mes Formateado": "TOTALES",
+              "Unidad": "",
+              "Total_Cantidad": df_bolsas_c["Total_Cantidad"].sum(),
+              "Total_Valor_IGV": df_bolsas_c["Total_Valor_IGV"].sum(),
+              "Total_Cotizaciones": df_bolsas_c["Total_Cotizaciones"].sum()
+          }])
+          df_bolsas_c = pd.concat([df_bolsas_c, df_totales_bc], ignore_index=True)
 
-        st.dataframe(format_display_tab1(df_resumen_ceros).style.set_properties(**{'text-align': 'left'}), use_container_width=True)
+        # 2. TABLA OTROS PRODUCTOS (0%) - Sin totales
+        df_otros_c = df_resumen_ceros[~df_resumen_ceros['Unidad_lower'].isin(['bolsas', 'servicio', 'servicios'])].drop(columns=['Unidad_lower']).copy()
+
+        # 3. TABLA SERVICIOS (0%)
+        df_servicios_c = df_resumen_ceros[df_resumen_ceros['Unidad_lower'].isin(['servicio', 'servicios'])].drop(columns=['Unidad_lower']).copy()
+        if not df_servicios_c.empty:
+          df_totales_sc = pd.DataFrame([{
+              "Mes Formateado": "TOTALES",
+              "Unidad": "",
+              "Total_Cantidad": df_servicios_c["Total_Cantidad"].sum(),
+              "Total_Valor_IGV": df_servicios_c["Total_Valor_IGV"].sum(),
+              "Total_Cotizaciones": df_servicios_c["Total_Cotizaciones"].sum()
+          }])
+          df_servicios_c = pd.concat([df_servicios_c, df_totales_sc], ignore_index=True)
+
+        st.markdown("#### 🛍️ Bolsas (0%)")
+        if not df_bolsas_c.empty: 
+          st.dataframe(format_display_tab1(df_bolsas_c).style.set_properties(**{'text-align': 'left'}), use_container_width=True)
+        else: 
+          st.info("No hay registros de Bolsas con 0% de chance.")
+
+        st.markdown("#### 📦 Otros Productos (0%)")
+        if not df_otros_c.empty: 
+          st.dataframe(format_display_tab1(df_otros_c).style.set_properties(**{'text-align': 'left'}), use_container_width=True)
+        else: 
+          st.info("No hay registros de Otros Productos con 0% de chance.")
+
+        st.markdown("#### 🔧 Servicios (0%)")
+        if not df_servicios_c.empty: 
+          st.dataframe(format_display_tab1(df_servicios_c).style.set_properties(**{'text-align': 'left'}), use_container_width=True)
+        else: 
+          st.info("No hay registros de Servicios con 0% de chance.")
+
       else:
         st.success("¡Excelente! No hay registros con 0% de chance para los filtros seleccionados.")
 
@@ -371,7 +405,6 @@ with tab1:
       st.warning("No hay registros disponibles para procesar.")
   else:
     st.info("Sube tus archivos para visualizar el resumen.")
-
 with tab2:
   st.subheader("Seguimiento de Ventas (Calculado Automáticamente)")
   if not st.session_state["df_auditoria"].empty:
