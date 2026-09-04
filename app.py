@@ -295,44 +295,76 @@ with tab2:
           lambda x: pd.to_datetime(x).strftime("%Y-%m") if pd.notna(x) and not pd.isna(pd.to_datetime(x, errors='coerce')) else str(x)[:7]
       )
       
-      buscar_tab2 = st.text_input("🔍 Buscar en Seguimiento Ventas (Unidad, Mes...):", "", key="b_tab2")
-
       # Agrupar sumando la Cantidad y eliminando el Ponderado
-      df_seg = df_ventas_calc.groupby(["Mes Formateado", "Unidad"], dropna=False).agg(
+      df_seg_base = df_ventas_calc.groupby(["Mes Formateado", "Unidad"], dropna=False).agg(
           Cantidad=("Cantidad_Num", "sum"),
           N_Cotizaciones=("N° Cotización", "count"),
           Pipeline_Bruto=("Importe_Num", "sum")
       ).reset_index()
 
-      if buscar_tab2:
-        mask = df_seg.astype(str).apply(lambda x: x.str.contains(buscar_tab2, case=False, na=False)).any(axis=1)
-        df_seg = df_seg[mask]
-      
       # Ordenar las columnas para que "Cantidad" quede al lado de "Unidad"
-      df_seg = df_seg[["Mes Formateado", "Unidad", "Cantidad", "N_Cotizaciones", "Pipeline_Bruto"]]
+      df_seg_base = df_seg_base[["Mes Formateado", "Unidad", "Cantidad", "N_Cotizaciones", "Pipeline_Bruto"]]
 
-      # --- NUEVO: Calcular y añadir fila de TOTALES ---
-      total_cantidad = df_seg["Cantidad"].sum()
-      total_cotizaciones = df_seg["N_Cotizaciones"].sum()
-      total_bruto = df_seg["Pipeline_Bruto"].sum()
-      
-      df_totales = pd.DataFrame([{
-          "Mes Formateado": "TOTALES",
-          "Unidad": "",
-          "Cantidad": total_cantidad,
-          "N_Cotizaciones": total_cotizaciones,
-          "Pipeline_Bruto": total_bruto
-      }])
-      
-      df_seg = pd.concat([df_seg, df_totales], ignore_index=True)
+      # Estandarizar el nombre de la unidad para facilitar el filtrado
+      df_seg_base['Unidad_lower'] = df_seg_base['Unidad'].astype(str).str.lower().str.strip()
 
-      # --- Formateo visual ---
-      df_seg_display = df_seg.copy()
-      df_seg_display["Cantidad"] = df_seg_display["Cantidad"].apply(lambda x: f"{int(x):,}")
-      df_seg_display["N_Cotizaciones"] = df_seg_display["N_Cotizaciones"].apply(lambda x: f"{int(x):,}")
-      df_seg_display["Pipeline_Bruto"] = df_seg_display["Pipeline_Bruto"].apply(lambda x: f"S/ {x:,.2f}")
-      
-      st.dataframe(df_seg_display.style.set_properties(**{'text-align': 'left'}), use_container_width=True)
+      # --- 1. TABLA BOLSAS ---
+      df_bolsas = df_seg_base[df_seg_base['Unidad_lower'] == 'bolsas'].drop(columns=['Unidad_lower']).copy()
+      if not df_bolsas.empty:
+        df_totales_b = pd.DataFrame([{
+            "Mes Formateado": "TOTALES",
+            "Unidad": "",
+            "Cantidad": df_bolsas["Cantidad"].sum(),
+            "N_Cotizaciones": df_bolsas["N_Cotizaciones"].sum(),
+            "Pipeline_Bruto": df_bolsas["Pipeline_Bruto"].sum()
+        }])
+        df_bolsas = pd.concat([df_bolsas, df_totales_b], ignore_index=True)
+
+      # --- 2. TABLA OTROS PRODUCTOS ---
+      # Todo lo que NO sea bolsas ni servicio(s)
+      df_otros = df_seg_base[~df_seg_base['Unidad_lower'].isin(['bolsas', 'servicio', 'servicios'])].drop(columns=['Unidad_lower']).copy()
+      # No se agrega fila de totales por solicitud
+
+      # --- 3. TABLA SERVICIOS ---
+      df_servicios = df_seg_base[df_seg_base['Unidad_lower'].isin(['servicio', 'servicios'])].drop(columns=['Unidad_lower']).copy()
+      if not df_servicios.empty:
+        df_totales_s = pd.DataFrame([{
+            "Mes Formateado": "TOTALES",
+            "Unidad": "",
+            "Cantidad": df_servicios["Cantidad"].sum(),
+            "N_Cotizaciones": df_servicios["N_Cotizaciones"].sum(),
+            "Pipeline_Bruto": df_servicios["Pipeline_Bruto"].sum()
+        }])
+        df_servicios = pd.concat([df_servicios, df_totales_s], ignore_index=True)
+
+      # --- FUNCIÓN AUXILIAR DE FORMATEO ---
+      def format_display_df(df):
+        if df.empty: return df
+        df_disp = df.copy()
+        df_disp["Cantidad"] = df_disp["Cantidad"].apply(lambda x: f"{int(x):,}")
+        df_disp["N_Cotizaciones"] = df_disp["N_Cotizaciones"].apply(lambda x: f"{int(x):,}")
+        df_disp["Pipeline_Bruto"] = df_disp["Pipeline_Bruto"].apply(lambda x: f"S/ {x:,.2f}")
+        return df_disp
+
+      # --- MOSTRAR LAS TRES TABLAS ---
+      st.markdown("#### 🛍️ Bolsas")
+      if not df_bolsas.empty:
+        st.dataframe(format_display_df(df_bolsas).style.set_properties(**{'text-align': 'left'}), use_container_width=True)
+      else:
+        st.info("No se encontraron registros de Bolsas.")
+
+      st.markdown("#### 📦 Otros Productos")
+      if not df_otros.empty:
+        st.dataframe(format_display_df(df_otros).style.set_properties(**{'text-align': 'left'}), use_container_width=True)
+      else:
+        st.info("No se encontraron registros de Otros Productos.")
+
+      st.markdown("#### 🔧 Servicios")
+      if not df_servicios.empty:
+        st.dataframe(format_display_df(df_servicios).style.set_properties(**{'text-align': 'left'}), use_container_width=True)
+      else:
+        st.info("No se encontraron registros de Servicios.")
+
     else:
       st.warning("Faltan columnas requeridas.")
   else:
