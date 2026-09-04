@@ -220,13 +220,28 @@ tab1, tab2, tab3 = st.tabs([
 ])
 
 with tab1:
-  st.subheader("Resumen Proyectado: Cantidades y Valores por Unidad (Chance > 0%)")
+  st.subheader("Resumen Proyectado: Cantidades y Valores por Unidad")
   if not st.session_state["df_auditoria"].empty:
     df_aud = st.session_state["df_auditoria"].copy()
+    
+    # --- Filtro por Vendedor (Código / Responsable) ---
+    if "RESPONSABLE" in df_aud.columns:
+      vendedores_disp = sorted([str(v) for v in df_aud["RESPONSABLE"].dropna().unique() if str(v).strip()])
+      if vendedores_disp:
+        vendedores_seleccionados = st.multiselect(
+            "🧑‍💼 Filtrar por Vendedor (Código):", 
+            options=vendedores_disp, 
+            default=vendedores_disp, 
+            key="filtro_vendedores_tab1"
+        )
+        if vendedores_seleccionados:
+          df_aud = df_aud[df_aud["RESPONSABLE"].isin(vendedores_seleccionados)]
+        else:
+          df_aud = df_aud.iloc[0:0]
+
     df_aud["Cantidad_Num"] = pd.to_numeric(df_aud["Cantidad"], errors="coerce").fillna(0).astype(int)
     df_aud["Importe_Num"] = pd.to_numeric(df_aud["Valor + IGV"], errors="coerce").fillna(0)
-    df_aud["Chance Num"] = pd.to_numeric(df_aud["Chance de Venta"], errors="coerce").fillna(0)
-    df_aud = df_aud[df_aud["Chance Num"] > 0]
+    df_aud["Chance_Num"] = pd.to_numeric(df_aud["Chance de Venta"], errors="coerce").fillna(0)
     
     if not df_aud.empty and "Mes Previsto" in df_aud.columns and "Unidad" in df_aud.columns:
       def formatear_mes_yyyy_mm(val):
@@ -242,42 +257,118 @@ with tab1:
       mes_actual_default = datetime.now().strftime("%Y-%m")
       defaults = [mes_actual_default] if mes_actual_default in meses_disponibles else meses_disponibles
       
-      col_f1, col_f2 = st.columns(2)
-      with col_f1:
-        meses_seleccionados = st.multiselect("Filtrar Mes Previsto:", options=meses_disponibles, default=defaults, key="m_tab1")
-      with col_f2:
-        buscar_tab1 = st.text_input("🔍 Buscar en Resumen (Unidad o Mes):", "", key="b_tab1")
-
+      # Filtro de Mes Previsto
+      meses_seleccionados = st.multiselect("Filtrar Mes Previsto:", options=meses_disponibles, default=defaults, key="m_tab1")
       if meses_seleccionados:
         df_aud = df_aud[df_aud["Mes Formateado"].isin(meses_seleccionados)]
 
-      df_resumen = df_aud.groupby(["Mes Formateado", "Unidad"], dropna=False).agg(
-          Total_Cantidad=("Cantidad_Num", "sum"),
-          Total_Valor_IGV=("Importe_Num", "sum"),
-          Total_Cotizaciones=("N° Cotización", "count")
-      ).reset_index()
+      # --- DIVISIÓN POR CHANCE DE VENTA ---
+      df_mayores_cero = df_aud[df_aud["Chance_Num"] > 0].copy()
+      df_ceros = df_aud[df_aud["Chance_Num"] == 0].copy()
 
-      if buscar_tab1:
-        mask = df_resumen.astype(str).apply(lambda x: x.str.contains(buscar_tab1, case=False, na=False)).any(axis=1)
-        df_resumen = df_resumen[mask]
+      # Función auxiliar de formateo para la Pestaña 1
+      def format_display_tab1(df):
+        if df.empty: return df
+        df_disp = df.copy()
+        df_disp["Total_Cantidad"] = df_disp["Total_Cantidad"].apply(lambda x: f"{int(x):,}")
+        df_disp["Total_Valor_IGV"] = df_disp["Total_Valor_IGV"].apply(lambda x: f"S/ {x:,.2f}")
+        df_disp["Total_Cotizaciones"] = df_disp["Total_Cotizaciones"].astype(str)
+        return df_disp
+
+      # ==========================================
+      # SECCIÓN 1: CHANCE DE VENTA > 0%
+      # ==========================================
+      st.markdown("### 📈 Resumen Activo (Chance > 0%)")
       
-      df_resumen_display = df_resumen.copy()
-      df_resumen_display["Total_Cantidad"] = df_resumen_display["Total_Cantidad"].apply(lambda x: f"{x:,.0f}")
-      df_resumen_display["Total_Valor_IGV"] = df_resumen_display["Total_Valor_IGV"].apply(lambda x: f"S/ {x:,.2f}")
-      df_resumen_display["Total_Cotizaciones"] = df_resumen_display["Total_Cotizaciones"].astype(str)
+      if not df_mayores_cero.empty:
+        df_resumen_base = df_mayores_cero.groupby(["Mes Formateado", "Unidad"], dropna=False).agg(
+            Total_Cantidad=("Cantidad_Num", "sum"),
+            Total_Valor_IGV=("Importe_Num", "sum"),
+            Total_Cotizaciones=("N° Cotización", "count")
+        ).reset_index()
+
+        df_resumen_base = df_resumen_base[["Mes Formateado", "Unidad", "Total_Cantidad", "Total_Valor_IGV", "Total_Cotizaciones"]]
+        df_resumen_base['Unidad_lower'] = df_resumen_base['Unidad'].astype(str).str.lower().str.strip()
+
+        # 1. TABLA BOLSAS
+        df_bolsas = df_resumen_base[df_resumen_base['Unidad_lower'] == 'bolsas'].drop(columns=['Unidad_lower']).copy()
+        if not df_bolsas.empty:
+          df_totales_b = pd.DataFrame([{
+              "Mes Formateado": "TOTALES",
+              "Unidad": "",
+              "Total_Cantidad": df_bolsas["Total_Cantidad"].sum(),
+              "Total_Valor_IGV": df_bolsas["Total_Valor_IGV"].sum(),
+              "Total_Cotizaciones": df_bolsas["Total_Cotizaciones"].sum()
+          }])
+          df_bolsas = pd.concat([df_bolsas, df_totales_b], ignore_index=True)
+
+        # 2. TABLA OTROS PRODUCTOS
+        df_otros = df_resumen_base[~df_resumen_base['Unidad_lower'].isin(['bolsas', 'servicio', 'servicios'])].drop(columns=['Unidad_lower']).copy()
+
+        # 3. TABLA SERVICIOS
+        df_servicios = df_resumen_base[df_resumen_base['Unidad_lower'].isin(['servicio', 'servicios'])].drop(columns=['Unidad_lower']).copy()
+        if not df_servicios.empty:
+          df_totales_s = pd.DataFrame([{
+              "Mes Formateado": "TOTALES",
+              "Unidad": "",
+              "Total_Cantidad": df_servicios["Total_Cantidad"].sum(),
+              "Total_Valor_IGV": df_servicios["Total_Valor_IGV"].sum(),
+              "Total_Cotizaciones": df_servicios["Total_Cotizaciones"].sum()
+          }])
+          df_servicios = pd.concat([df_servicios, df_totales_s], ignore_index=True)
+
+        st.markdown("#### 🛍️ Bolsas")
+        if not df_bolsas.empty: 
+          st.dataframe(format_display_tab1(df_bolsas).style.set_properties(**{'text-align': 'left'}), use_container_width=True)
+        else: 
+          st.info("No hay registros activos de Bolsas.")
+
+        st.markdown("#### 📦 Otros Productos")
+        if not df_otros.empty: 
+          st.dataframe(format_display_tab1(df_otros).style.set_properties(**{'text-align': 'left'}), use_container_width=True)
+        else: 
+          st.info("No hay registros activos de Otros Productos.")
+
+        st.markdown("#### 🔧 Servicios")
+        if not df_servicios.empty: 
+          st.dataframe(format_display_tab1(df_servicios).style.set_properties(**{'text-align': 'left'}), use_container_width=True)
+        else: 
+          st.info("No hay registros activos de Servicios.")
+
+      else:
+        st.warning("No hay registros con Chance de Venta > 0% para los filtros seleccionados.")
+
+      st.markdown("---")
+
+      # ==========================================
+      # SECCIÓN 2: CHANCE DE VENTA = 0%
+      # ==========================================
+      st.markdown("### ❄️ Resumen Congelado / Perdido (Chance = 0%)")
       
-      st.dataframe(df_resumen_display.style.set_properties(**{'text-align': 'left'}), use_container_width=True)
-      
-      total_general_cant = df_resumen["Total_Cantidad"].sum() if not df_resumen.empty else 0
-      total_general_val = df_resumen["Total_Valor_IGV"].sum() if not df_resumen.empty else 0
-      
-      col1, col2 = st.columns(2)
-      with col1:
-        st.metric(label="📦 Cantidad Total Filtrada", value=f"{int(total_general_cant):,}")
-      with col2:
-        st.metric(label="💰 Valor Total con IGV (S/)", value=f"S/ {total_general_val:,.2f}")
+      if not df_ceros.empty:
+        df_resumen_ceros = df_ceros.groupby(["Mes Formateado", "Unidad"], dropna=False).agg(
+            Total_Cantidad=("Cantidad_Num", "sum"),
+            Total_Valor_IGV=("Importe_Num", "sum"),
+            Total_Cotizaciones=("N° Cotización", "count")
+        ).reset_index()
+
+        df_resumen_ceros = df_resumen_ceros[["Mes Formateado", "Unidad", "Total_Cantidad", "Total_Valor_IGV", "Total_Cotizaciones"]]
+
+        df_totales_c = pd.DataFrame([{
+            "Mes Formateado": "TOTALES",
+            "Unidad": "",
+            "Total_Cantidad": df_resumen_ceros["Total_Cantidad"].sum(),
+            "Total_Valor_IGV": df_resumen_ceros["Total_Valor_IGV"].sum(),
+            "Total_Cotizaciones": df_resumen_ceros["Total_Cotizaciones"].sum()
+        }])
+        df_resumen_ceros = pd.concat([df_resumen_ceros, df_totales_c], ignore_index=True)
+
+        st.dataframe(format_display_tab1(df_resumen_ceros).style.set_properties(**{'text-align': 'left'}), use_container_width=True)
+      else:
+        st.success("¡Excelente! No hay registros con 0% de chance para los filtros seleccionados.")
+
     else:
-      st.warning("No hay registros con Chance de Venta mayor a 0%.")
+      st.warning("No hay registros disponibles para procesar.")
   else:
     st.info("Sube tus archivos para visualizar el resumen.")
 
