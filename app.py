@@ -331,12 +331,20 @@ with tab3:
       mask = df_aud_disp.astype(str).apply(lambda x: x.str.contains(buscar_tab3, case=False, na=False)).any(axis=1)
       df_aud_disp = df_aud_disp[mask]
 
+    # --- NUEVO: Formateo de Columnas de Fecha a DD/MM/YYYY ---
+    columnas_fechas = ["1o. Contacto", "Ultimo Contacto", "Mes Previsto"]
+    for col in columnas_fechas:
+      if col in df_aud_disp.columns:
+        # Se convierte a fecha y se aplica el formato dd/mm/yyyy. Si el valor es inválido o vacío, se deja en blanco o se mantiene el original.
+        df_aud_disp[col] = pd.to_datetime(df_aud_disp[col], errors='coerce').dt.strftime('%d/%m/%Y').fillna("")
+
+    # Formateo de Contabilidad y Porcentajes
     if "Valor + IGV" in df_aud_disp.columns:
-      df_aud_disp["Valor + IGV"] = df_aud_disp["Valor + IGV"].apply(lambda x: f"S/ {float(x):,.2f}" if pd.notna(x) else "")
+      df_aud_disp["Valor + IGV"] = df_aud_disp["Valor + IGV"].apply(lambda x: f"S/ {float(x):,.2f}" if pd.notna(x) and str(x).strip() != "" else "")
     if "Chance de Venta" in df_aud_disp.columns:
-      df_aud_disp["Chance de Venta"] = df_aud_disp["Chance de Venta"].apply(lambda x: f"{float(x)*100:,.2f}%" if pd.notna(x) else "")
+      df_aud_disp["Chance de Venta"] = df_aud_disp["Chance de Venta"].apply(lambda x: f"{float(x)*100:,.2f}%" if pd.notna(x) and str(x).strip() != "" else "")
     if "Cantidad" in df_aud_disp.columns:
-      df_aud_disp["Cantidad"] = df_aud_disp["Cantidad"].apply(lambda x: f"{int(float(x)):,}" if pd.notna(x) else "")
+      df_aud_disp["Cantidad"] = df_aud_disp["Cantidad"].apply(lambda x: f"{int(float(x)):,}" if pd.notna(x) and str(x).strip() != "" else "")
       
     st.dataframe(df_aud_disp.style.set_properties(**{'text-align': 'left'}), use_container_width=True)
     st.success(f"Registros encontrados / mostrados: {len(df_aud_disp)}")
