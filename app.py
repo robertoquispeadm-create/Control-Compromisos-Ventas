@@ -110,6 +110,13 @@ if archivos_nuevos:
       
       df_normalizado["Cantidad"] = pd.to_numeric(df_v["Cantidad"], errors="coerce").fillna(0).round(0).astype(int)
       df_normalizado["Valor + IGV"] = pd.to_numeric(df_v["Valor + IGV"], errors="coerce").fillna(0)
+      
+      # --- AGREGADO: Status Resumido ---
+      if "Status Resumido" in df_v.columns:
+          df_normalizado["Status Resumido"] = df_v["Status Resumido"]
+      else:
+          df_normalizado["Status Resumido"] = ""
+      
       df_normalizado["Chance de Venta"] = pd.to_numeric(df_v["Chance de Venta"], errors="coerce").fillna(0)
       
       df_normalizado["Valor Ponderado (S/)"] = df_normalizado["Valor + IGV"] * df_normalizado["Chance de Venta"]
@@ -312,6 +319,10 @@ with tab3:
   st.subheader("Detalle General y Auditoría de Cotizaciones")
   if not st.session_state["df_auditoria"].empty:
     df_aud_disp = st.session_state["df_auditoria"].copy()
+    
+    # --- MODIFICACIÓN: Quitar columnas ponderadas SOLO de la visualización ---
+    cols_a_quitar = ["Valor Ponderado (S/)", "Cantidad Ponderada Prod."]
+    df_aud_disp = df_aud_disp.drop(columns=[c for c in cols_a_quitar if c in df_aud_disp.columns])
     
     # Buscador global para filtrar cualquier celda del historial (Cliente, N° Cotización, Vendedor, etc.)
     buscar_tab3 = st.text_input("🔍 Buscar cualquier dato (Cliente, Cotización, Vendedor, Unidad...):", "", key="b_tab3")
