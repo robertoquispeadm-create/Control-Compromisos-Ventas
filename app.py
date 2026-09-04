@@ -286,56 +286,39 @@ with tab2:
   if not st.session_state["df_auditoria"].empty:
     df_ventas_calc = st.session_state["df_auditoria"].copy()
     
-    # Asegurar que las columnas sean numéricas para poder sumarlas
+    # --- NUEVO: Filtro por Vendedor (Código / Responsable) ---
+    if "RESPONSABLE" in df_ventas_calc.columns:
+      # Obtenemos los vendedores únicos evitando nulos o vacíos
+      vendedores_disp = sorted([str(v) for v in df_ventas_calc["RESPONSABLE"].dropna().unique() if str(v).strip()])
+      if vendedores_disp:
+        vendedores_seleccionados = st.multiselect(
+            "🧑‍💼 Filtrar por Vendedor (Código):", 
+            options=vendedores_disp, 
+            default=vendedores_disp, # Por defecto muestra todos
+            key="filtro_vendedores_tab2"
+        )
+        # Aplicar el filtro a la data general
+        if vendedores_seleccionados:
+          df_ventas_calc = df_ventas_calc[df_ventas_calc["RESPONSABLE"].isin(vendedores_seleccionados)]
+        else:
+          # Si se desmarcan todos, dejamos el dataframe vacío para no mostrar data incorrecta
+          df_ventas_calc = df_ventas_calc.iloc[0:0]
+
+    # Asegurar que las columnas sean numéricas
     df_ventas_calc["Importe_Num"] = pd.to_numeric(df_ventas_calc["Valor + IGV"], errors="coerce").fillna(0)
     df_ventas_calc["Cantidad_Num"] = pd.to_numeric(df_ventas_calc["Cantidad"], errors="coerce").fillna(0).astype(int)
+    df_ventas_calc["Chance_Num"] = pd.to_numeric(df_ventas_calc["Chance de Venta"], errors="coerce").fillna(0)
     
     if "Mes Previsto" in df_ventas_calc.columns and "Unidad" in df_ventas_calc.columns:
       df_ventas_calc["Mes Formateado"] = df_ventas_calc["Mes Previsto"].apply(
           lambda x: pd.to_datetime(x).strftime("%Y-%m") if pd.notna(x) and not pd.isna(pd.to_datetime(x, errors='coerce')) else str(x)[:7]
       )
       
-      # Agrupar sumando la Cantidad y eliminando el Ponderado
-      df_seg_base = df_ventas_calc.groupby(["Mes Formateado", "Unidad"], dropna=False).agg(
-          Cantidad=("Cantidad_Num", "sum"),
-          N_Cotizaciones=("N° Cotización", "count"),
-          Pipeline_Bruto=("Importe_Num", "sum")
-      ).reset_index()
-
-      # Ordenar las columnas para que "Cantidad" quede al lado de "Unidad"
-      df_seg_base = df_seg_base[["Mes Formateado", "Unidad", "Cantidad", "N_Cotizaciones", "Pipeline_Bruto"]]
-
-      # Estandarizar el nombre de la unidad para facilitar el filtrado
-      df_seg_base['Unidad_lower'] = df_seg_base['Unidad'].astype(str).str.lower().str.strip()
-
-      # --- 1. TABLA BOLSAS ---
-      df_bolsas = df_seg_base[df_seg_base['Unidad_lower'] == 'bolsas'].drop(columns=['Unidad_lower']).copy()
-      if not df_bolsas.empty:
-        df_totales_b = pd.DataFrame([{
-            "Mes Formateado": "TOTALES",
-            "Unidad": "",
-            "Cantidad": df_bolsas["Cantidad"].sum(),
-            "N_Cotizaciones": df_bolsas["N_Cotizaciones"].sum(),
-            "Pipeline_Bruto": df_bolsas["Pipeline_Bruto"].sum()
-        }])
-        df_bolsas = pd.concat([df_bolsas, df_totales_b], ignore_index=True)
-
-      # --- 2. TABLA OTROS PRODUCTOS ---
-      # Todo lo que NO sea bolsas ni servicio(s)
-      df_otros = df_seg_base[~df_seg_base['Unidad_lower'].isin(['bolsas', 'servicio', 'servicios'])].drop(columns=['Unidad_lower']).copy()
-      # No se agrega fila de totales por solicitud
-
-      # --- 3. TABLA SERVICIOS ---
-      df_servicios = df_seg_base[df_seg_base['Unidad_lower'].isin(['servicio', 'servicios'])].drop(columns=['Unidad_lower']).copy()
-      if not df_servicios.empty:
-        df_totales_s = pd.DataFrame([{
-            "Mes Formateado": "TOTALES",
-            "Unidad": "",
-            "Cantidad": df_servicios["Cantidad"].sum(),
-            "N_Cotizaciones": df_servicios["N_Cotizaciones"].sum(),
-            "Pipeline_Bruto": df_servicios["Pipeline_Bruto"].sum()
-        }])
-        df_servicios = pd.concat([df_servicios, df_totales_s], ignore_index=True)
+      # --- DIVISIÓN POR CHANCE DE VENTA ---
+      # 1. Mayores a 0%
+      df_mayores_cero = df_ventas_calc[df_ventas_calc["Chance_Num"] > 0].copy()
+      # 2. Iguales a 0%
+      df_ceros = df_ventas_calc[df_ventas_calc["Chance_Num"] == 0].copy()
 
       # --- FUNCIÓN AUXILIAR DE FORMATEO ---
       def format_display_df(df):
@@ -346,27 +329,86 @@ with tab2:
         df_disp["Pipeline_Bruto"] = df_disp["Pipeline_Bruto"].apply(lambda x: f"S/ {x:,.2f}")
         return df_disp
 
-      # --- MOSTRAR LAS TRES TABLAS ---
-      st.markdown("#### 🛍️ Bolsas")
-      if not df_bolsas.empty:
-        st.dataframe(format_display_df(df_bolsas).style.set_properties(**{'text-align': 'left'}), use_container_width=True)
-      else:
-        st.info("No se encontraron registros de Bolsas.")
+      # ==========================================
+      # SECCIÓN 1: CHANCE DE VENTA > 0%
+      # ==========================================
+      st.markdown("### 📈 Pipeline Activo (Chance > 0%)")
+      
+      if not df_mayores_cero.empty:
+        # Agrupar data base de > 0%
+        df_seg_base = df_mayores_cero.groupby(["Mes Formateado", "Unidad"], dropna=False).agg(
+            Cantidad=("Cantidad_Num", "sum"),
+            N_Cotizaciones=("N° Cotización", "count"),
+            Pipeline_Bruto=("Importe_Num", "sum")
+        ).reset_index()
 
-      st.markdown("#### 📦 Otros Productos")
-      if not df_otros.empty:
-        st.dataframe(format_display_df(df_otros).style.set_properties(**{'text-align': 'left'}), use_container_width=True)
-      else:
-        st.info("No se encontraron registros de Otros Productos.")
+        df_seg_base = df_seg_base[["Mes Formateado", "Unidad", "Cantidad", "N_Cotizaciones", "Pipeline_Bruto"]]
+        df_seg_base['Unidad_lower'] = df_seg_base['Unidad'].astype(str).str.lower().str.strip()
 
-      st.markdown("#### 🔧 Servicios")
-      if not df_servicios.empty:
-        st.dataframe(format_display_df(df_servicios).style.set_properties(**{'text-align': 'left'}), use_container_width=True)
+        # --- 1. TABLA BOLSAS ---
+        df_bolsas = df_seg_base[df_seg_base['Unidad_lower'] == 'bolsas'].drop(columns=['Unidad_lower']).copy()
+        if not df_bolsas.empty:
+          df_totales_b = pd.DataFrame([{"Mes Formateado": "TOTALES", "Unidad": "", "Cantidad": df_bolsas["Cantidad"].sum(), "N_Cotizaciones": df_bolsas["N_Cotizaciones"].sum(), "Pipeline_Bruto": df_bolsas["Pipeline_Bruto"].sum()}])
+          df_bolsas = pd.concat([df_bolsas, df_totales_b], ignore_index=True)
+
+        # --- 2. TABLA OTROS PRODUCTOS ---
+        df_otros = df_seg_base[~df_seg_base['Unidad_lower'].isin(['bolsas', 'servicio', 'servicios'])].drop(columns=['Unidad_lower']).copy()
+
+        # --- 3. TABLA SERVICIOS ---
+        df_servicios = df_seg_base[df_seg_base['Unidad_lower'].isin(['servicio', 'servicios'])].drop(columns=['Unidad_lower']).copy()
+        if not df_servicios.empty:
+          df_totales_s = pd.DataFrame([{"Mes Formateado": "TOTALES", "Unidad": "", "Cantidad": df_servicios["Cantidad"].sum(), "N_Cotizaciones": df_servicios["N_Cotizaciones"].sum(), "Pipeline_Bruto": df_servicios["Pipeline_Bruto"].sum()}])
+          df_servicios = pd.concat([df_servicios, df_totales_s], ignore_index=True)
+
+        # Mostrar las 3 tablas
+        st.markdown("#### 🛍️ Bolsas")
+        if not df_bolsas.empty: st.dataframe(format_display_df(df_bolsas).style.set_properties(**{'text-align': 'left'}), use_container_width=True)
+        else: st.info("No se encontraron registros de Bolsas (Activos).")
+
+        st.markdown("#### 📦 Otros Productos")
+        if not df_otros.empty: st.dataframe(format_display_df(df_otros).style.set_properties(**{'text-align': 'left'}), use_container_width=True)
+        else: st.info("No se encontraron registros de Otros Productos (Activos).")
+
+        st.markdown("#### 🔧 Servicios")
+        if not df_servicios.empty: st.dataframe(format_display_df(df_servicios).style.set_properties(**{'text-align': 'left'}), use_container_width=True)
+        else: st.info("No se encontraron registros de Servicios (Activos).")
+
       else:
-        st.info("No se encontraron registros de Servicios.")
+        st.warning("No hay cotizaciones con chance mayor a 0% para el/los vendedor(es) seleccionado(s).")
+
+      st.markdown("---")
+
+      # ==========================================
+      # SECCIÓN 2: CHANCE DE VENTA = 0%
+      # ==========================================
+      st.markdown("### ❄️ Cotizaciones Congeladas / Perdidas (Chance = 0%)")
+      
+      if not df_ceros.empty:
+        # Agrupar en una sola tabla todo lo que sea 0%
+        df_seg_ceros = df_ceros.groupby(["Mes Formateado", "Unidad"], dropna=False).agg(
+            Cantidad=("Cantidad_Num", "sum"),
+            N_Cotizaciones=("N° Cotización", "count"),
+            Pipeline_Bruto=("Importe_Num", "sum")
+        ).reset_index()
+        
+        df_seg_ceros = df_seg_ceros[["Mes Formateado", "Unidad", "Cantidad", "N_Cotizaciones", "Pipeline_Bruto"]]
+        
+        # Fila de totales para los 0%
+        df_totales_c = pd.DataFrame([{
+            "Mes Formateado": "TOTALES",
+            "Unidad": "",
+            "Cantidad": df_seg_ceros["Cantidad"].sum(),
+            "N_Cotizaciones": df_seg_ceros["N_Cotizaciones"].sum(),
+            "Pipeline_Bruto": df_seg_ceros["Pipeline_Bruto"].sum()
+        }])
+        df_seg_ceros = pd.concat([df_seg_ceros, df_totales_c], ignore_index=True)
+        
+        st.dataframe(format_display_df(df_seg_ceros).style.set_properties(**{'text-align': 'left'}), use_container_width=True)
+      else:
+        st.success("¡Excelente! No hay cotizaciones con 0% de chance para el filtro actual.")
 
     else:
-      st.warning("Faltan columnas requeridas.")
+      st.warning("Faltan columnas requeridas para agrupar.")
   else:
     st.info("Sube tus archivos para generar el Seguimiento de Ventas.")
 
