@@ -285,7 +285,10 @@ with tab2:
   st.subheader("Seguimiento de Ventas (Calculado Automáticamente)")
   if not st.session_state["df_auditoria"].empty:
     df_ventas_calc = st.session_state["df_auditoria"].copy()
+    
+    # Asegurar que las columnas sean numéricas para poder sumarlas
     df_ventas_calc["Importe_Num"] = pd.to_numeric(df_ventas_calc["Valor + IGV"], errors="coerce").fillna(0)
+    df_ventas_calc["Cantidad_Num"] = pd.to_numeric(df_ventas_calc["Cantidad"], errors="coerce").fillna(0).astype(int)
     
     if "Mes Previsto" in df_ventas_calc.columns and "Unidad" in df_ventas_calc.columns:
       df_ventas_calc["Mes Formateado"] = df_ventas_calc["Mes Previsto"].apply(
@@ -294,20 +297,40 @@ with tab2:
       
       buscar_tab2 = st.text_input("🔍 Buscar en Seguimiento Ventas (Unidad, Mes...):", "", key="b_tab2")
 
+      # Agrupar sumando la Cantidad y eliminando el Ponderado
       df_seg = df_ventas_calc.groupby(["Mes Formateado", "Unidad"], dropna=False).agg(
+          Cantidad=("Cantidad_Num", "sum"),
           N_Cotizaciones=("N° Cotización", "count"),
-          Pipeline_Bruto=("Importe_Num", "sum"),
-          Pipeline_Realista_Ponderado=("Valor Ponderado (S/)", "sum")
+          Pipeline_Bruto=("Importe_Num", "sum")
       ).reset_index()
 
       if buscar_tab2:
         mask = df_seg.astype(str).apply(lambda x: x.str.contains(buscar_tab2, case=False, na=False)).any(axis=1)
         df_seg = df_seg[mask]
       
+      # Ordenar las columnas para que "Cantidad" quede al lado de "Unidad"
+      df_seg = df_seg[["Mes Formateado", "Unidad", "Cantidad", "N_Cotizaciones", "Pipeline_Bruto"]]
+
+      # --- NUEVO: Calcular y añadir fila de TOTALES ---
+      total_cantidad = df_seg["Cantidad"].sum()
+      total_cotizaciones = df_seg["N_Cotizaciones"].sum()
+      total_bruto = df_seg["Pipeline_Bruto"].sum()
+      
+      df_totales = pd.DataFrame([{
+          "Mes Formateado": "TOTALES",
+          "Unidad": "",
+          "Cantidad": total_cantidad,
+          "N_Cotizaciones": total_cotizaciones,
+          "Pipeline_Bruto": total_bruto
+      }])
+      
+      df_seg = pd.concat([df_seg, df_totales], ignore_index=True)
+
+      # --- Formateo visual ---
       df_seg_display = df_seg.copy()
+      df_seg_display["Cantidad"] = df_seg_display["Cantidad"].apply(lambda x: f"{int(x):,}")
       df_seg_display["N_Cotizaciones"] = df_seg_display["N_Cotizaciones"].apply(lambda x: f"{int(x):,}")
       df_seg_display["Pipeline_Bruto"] = df_seg_display["Pipeline_Bruto"].apply(lambda x: f"S/ {x:,.2f}")
-      df_seg_display["Pipeline_Realista_Ponderado"] = df_seg_display["Pipeline_Realista_Ponderado"].apply(lambda x: f"S/ {x:,.2f}")
       
       st.dataframe(df_seg_display.style.set_properties(**{'text-align': 'left'}), use_container_width=True)
     else:
